@@ -119,12 +119,14 @@ public/
 scripts/
   check.js                comprobaciones desde la terminal (npm run check)
   copia-para-compartir.js copia del programa sin datos personales
+  instalar-node.ps1       descarga Node.js LTS portable en .runtime\node\ (Windows, verificado SHA-256)
   importar-artefacto.js   migración desde el panel HTML original (uso puntual)
 test/                     pruebas con node:test
 data/                     (se crea al arrancar) datos del usuario
+.runtime/                 (opcional, no se versiona) Node.js portable si el equipo no lo tiene
 config.json               ajustes sin secretos
 .env                      clave de Alpha Vantage y puerto (nunca se versiona)
-iniciar.bat / .command    arranque con doble clic (Windows / macOS)
+iniciar.bat / .command    arranque con doble clic (Windows / macOS / Linux; auto-descarga Node.js portable si falta)
 configurar-git.bat        primer commit y push al repositorio
 crear-copia-para-compartir.bat
 ```

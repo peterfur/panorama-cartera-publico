@@ -33,7 +33,7 @@ if (fs.existsSync(target)) {
 const INCLUDE = [
   'server.js', 'package.json', 'README.md', 'DOCUMENTACION-TECNICA.md', '.gitignore', '.gitattributes', '.env.example',
   'iniciar.bat', 'iniciar.command', 'configurar-git.bat', 'crear-copia-para-compartir.bat',
-  'lib', 'public', 'scripts/check.js', 'scripts/copia-para-compartir.js',
+  'lib', 'public', 'scripts/check.js', 'scripts/copia-para-compartir.js', 'scripts/instalar-node.ps1',
 ];
 INCLUDE.forEach((rel) => {
   const src = path.join(ROOT, rel);

@@ -8,13 +8,14 @@ Es una aplicación que se ejecuta en tu ordenador. Los datos están en un archiv
 
 ## Arrancar
 
-Hace falta [Node.js](https://nodejs.org) 18 o superior (versión LTS). No hay que instalar nada más: la aplicación no tiene dependencias.
+No hace falta instalar nada a mano: la aplicación no tiene dependencias y, si no tienes [Node.js](https://nodejs.org) 18 o superior en tu ordenador, el propio lanzador descarga automáticamente una copia oficial y portable de Node.js LTS dentro de esta carpeta (`.runtime/node/`, verificada con SHA-256, sin permisos de administrador y sin tocar el sistema). Solo hace falta conexión a internet esa primera vez.
 
 | Sistema | Cómo |
 | --- | --- |
 | Windows | Doble clic en `iniciar.bat` |
 | macOS | Doble clic en `iniciar.command` |
-| Cualquiera | `npm start` en una terminal abierta en esta carpeta |
+| Linux | `./iniciar.command` en una terminal abierta en esta carpeta |
+| Cualquiera (si ya tienes Node.js) | `npm start` en una terminal abierta en esta carpeta |
 
 Se abre el navegador en `http://localhost:8765`. Para cerrar la aplicación, cierra la ventana de la terminal o pulsa `Ctrl+C` en ella.
 
@@ -24,7 +25,7 @@ Se abre el navegador en `http://localhost:8765`. Para cerrar la aplicación, cie
 
 ### Actualizar a una nueva versión
 
-Para actualizar a una versión nueva de Panorama de Cartera sin perder nada, **conserva tu carpeta `data/`, tu `config.json` y tu `.env`**, y sustituye el resto de archivos del programa por los de la nueva versión.
+Para actualizar a una versión nueva de Panorama de Cartera sin perder nada, **conserva tu carpeta `data/`, tu `config.json` y tu `.env`** (y opcionalmente `.runtime/` para no volver a bajar Node.js), y sustituye el resto de archivos del programa por los de la nueva versión.
 
 ## Qué se puede hacer
 
@@ -116,7 +117,7 @@ Tras la primera importación de DEGIRO, cada posición está valorada al precio 
 
 ## Dársela a otra persona
 
-`crear-copia-para-compartir.bat` (o `npm run copia`) crea, al lado de esta carpeta, `panorama-cartera-para-compartir`: el programa **sin ningún dato tuyo** (ni `data/`, ni `.env` con tu clave, ni `extractos/`, ni el historial de git, ni las pruebas, que usan una copia de tus datos), con un `config.json` vacío. Comprímela y pásala. Quien la reciba necesita Node.js, abre `iniciar.bat` e importa sus extractos; si quiere usar git, que cree su propio repositorio.
+`crear-copia-para-compartir.bat` (o `npm run copia`) crea, al lado de esta carpeta, `panorama-cartera-para-compartir`: el programa **sin ningún dato tuyo** (ni `data/`, ni `.env` con tu clave, ni `extractos/`, ni `.runtime/`, ni el historial de git, ni las pruebas, que usan una copia de tus datos), con un `config.json` vacío. Comprímela y pásala. Quien la reciba solo tiene que abrir `iniciar.bat` (o `iniciar.command` en macOS/Linux) —si no tiene Node.js, se prepara automáticamente en modo portable la primera vez— e importar sus extractos; si quiere usar git, que cree su propio repositorio.
 
 No compartas esta carpeta tal cual ni des acceso a tu repositorio de GitHub: contienen tu cartera completa.
 

@@ -6,6 +6,7 @@ data/backups/
 *.tmp
 
 node_modules/
+.runtime/
 .DS_Store
 Thumbs.db
 
