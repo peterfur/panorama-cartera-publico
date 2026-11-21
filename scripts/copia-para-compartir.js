@@ -70,6 +70,7 @@ fs.writeFileSync(path.join(target, MARK), 'Copia de Panorama de Cartera sin dato
 const pkgFile = path.join(target, 'package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
 delete pkg.scripts.test;
+delete pkg.scripts.publicar;
 fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, 2) + '\n');
 
 console.log(`Copia sin datos personales creada en:\n  ${target}\n\nComprímela (botón derecho → Comprimir en archivo ZIP) y pásasela. Al abrir iniciar.bat empezará con la cartera vacía.`);
