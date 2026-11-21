@@ -345,7 +345,7 @@ Otras reglas:
    - `degiro_total_return` = realizado + no realizado + dividendos netos + intereses + préstamo de valores + comisiones que no son de compraventa. Las de compraventa ya están dentro del coste y del resultado, así que no se restan dos veces.
    - `portfolio_total_return` = (NAV de IBKR − aportado a IBKR) + rendimiento de DEGIRO.
    - `portfolio_value_total` = aportaciones totales + rendimiento total.
-   - `% sobre lo aportado` = rendimiento ÷ aportaciones (0 si no hay aportaciones).
+   - `% sobre lo aportado` = rendimiento ÷ aportaciones netas cuando las aportaciones netas son positivas (`0` si cartera vacía; `null` / `—` si las aportaciones netas son `≤ 0` por haber retirado capital y beneficios, para no invertir el signo).
    - `degiro_implied_cash` = efectivo que debería haber según los flujos. Se contrasta con el saldo del extracto.
 9. **TIR (XIRR):**
    - **Método.** Bisección sobre el valor actual neto de los flujos con fecha, con días/365. El intervalo de búsqueda va de −99 % a +1.000 % y se hacen 200 iteraciones.
@@ -403,7 +403,7 @@ Los extractos no traen cotizaciones de mercado. La ventana **Actualizar precios*
 - **Flujos** (`contributionFlows`): ingresos y retiradas de las dos cuentas, con fecha y signo.
 - **Compra de participaciones.** Con cada aportación se compran participaciones del índice al precio de ese día; con cada retirada se venden. El valor de esas participaciones en el tiempo es la línea del índice.
 - **Precios del índice.** Se usan SPY y QQQ, con su **precio ajustado semanal** (dividendos reinvertidos), pasado a euros con el tipo de cambio de cada semana. `priceAt` interpola entre puntos.
-- **Resultado** de cada índice y de la cartera: valor final, ganancia, % sobre lo aportado y **TIR**. La TIR es la cifra justa para comparar, porque tiene en cuenta cuándo entró cada euro.
+- **Resultado** de cada índice y de la cartera: valor final, ganancia, % sobre lo aportado (solo si aportaciones netas > 0) y **TIR**. La TIR es la cifra justa para comparar, porque tiene en cuenta cuándo entró cada euro. En la TIR conjunta de la cartera, cada bróker cierra en su propia fecha de valoración (`live_meta.valuation_iso` para DEGIRO y `ibkr.period_end` para IBKR), de modo que no haber subido un informe reciente de una de las dos cuentas no penaliza con 0 % de rendimiento el tramo intermedio.
 
 ### 10.2 Datos (`data/indices.json`)
 
@@ -705,5 +705,5 @@ Las pruebas usan un Alpha Vantage simulado (un servidor HTTP local), así que no
 - **2026-11-21 — Simulación fiscal IRPF (España), mejoras de lógica/seguridad y rediseño de navegación:**
   - Añadido `lib/irpf.js`, sección `#irpf` en la interfaz, tabla resumen en `lib/report.js`, ruta `GET /api/irpf/simulate` y suite `test/irpf.test.js` (FIFO global por ISIN DEGIRO + IBKR, desdoblamientos, regla de los 2 meses art. 33.5.f, compensación 25 % y arrastre 4 años art. 49, tramos ahorro 2023–2024 y 2025+, DDI orientativa art. 80 y simulador «¿Y si vendo hoy?»).
   - Ampliado `lib/degiro.js` (`time` en `trades`, `dividendEvents` e `interestEvents` fechados) y `lib/ibkr.js` (`proceeds_eur` en operaciones) para trazabilidad fiscal exacta por ejercicio.
-  - Endurecimiento técnico y seguridad: `degiro_sec_lending` integrado en `degiro_total_return`, guardas `< 1 día` y de signo en XIRR, soporte solo-IBKR en `benchmark.js` y `report.js`, separación por divisa en compras manuales del mismo ISIN, `try/catch` en `decodeURIComponent`, cabeceras `Referrer-Policy`/`CSP` en todas las respuestas y `exclusive()` en `/api/indices/daily`.
+  - Endurecimiento técnico y seguridad: `degiro_sec_lending` integrado en `degiro_total_return`, guardas `< 1 día` y de signo en XIRR, protección de `% sobre lo aportado` cuando aportaciones netas `≤ 0` (`null`), TIR conjunta valorando cada bróker en su propia fecha (`valuation_iso` / `ibkr.period_end`) para no penalizar cuentas sin actualizar, soporte solo-IBKR en `benchmark.js` y `report.js`, separación por divisa en compras manuales del mismo ISIN, `try/catch` en `decodeURIComponent`, cabeceras `Referrer-Policy`/`CSP` en todas las respuestas y `exclusive()` en `/api/indices/daily`.
   - Mejoras de diseño y navegación: barra superior fija compacta sin recortes con pastilla de comprobaciones, selector de tema claro/oscuro, desplegable de secciones en móvil, contraste WCAG AAA en modo oscuro (`--brand-ink`), corrección de `mask-image` en `.hero`, tooltips fijos ajustados al viewport y gráficos legibles en móvil.

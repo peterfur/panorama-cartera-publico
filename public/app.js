@@ -203,7 +203,7 @@
     const tiles = [
       { label:'Valor total de la cartera', value: eur(combined.portfolio_value_total), sub: BOTH ? `hoy · IBKR ${eurShort(ibkr.nav_final)} + DEGIRO ${eurShort(combined.degiro_value_total)} en posiciones` : (HAS.degiro ? `hoy · ${eurShort(combined.degiro_value_total)} en posiciones y ${eurShort(combined.degiro_cash_wallet)} de efectivo` : `al ${isoLabel(ibkr.period_end)}, fecha del último informe`) },
       { label:'Aportaciones netas totales', value: eur(combined.total_contributions), sub: BOTH ? `IBKR ${eurShort(combined.ibkr_contributions)} · DEGIRO ${eurShort(combined.degiro_contributions)}` : 'ingresos menos retiradas' },
-      { label:'Rendimiento total', value: eur(combined.portfolio_total_return,{forceSign:true}), sub: `${pct(combined.portfolio_total_return_pct,1)} sobre lo aportado`, pos: combined.portfolio_total_return>=0, neg: combined.portfolio_total_return<0 },
+      { label:'Rendimiento total', value: eur(combined.portfolio_total_return,{forceSign:true}), sub: combined.portfolio_total_return_pct != null ? `${pct(combined.portfolio_total_return_pct,1)} sobre lo aportado` : 'capital recuperado (aportaciones netas ≤ 0)', pos: combined.portfolio_total_return>=0, neg: combined.portfolio_total_return<0 },
       { label:'Dividendos netos recibidos', value: eur(combined.total_div_net), custom:true },
     ];
     tiles.forEach((t,i)=>{
