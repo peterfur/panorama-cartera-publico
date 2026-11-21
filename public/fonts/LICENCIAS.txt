@@ -1,0 +1,4 @@
+Fuentes incluidas para uso sin conexión (subconjunto latino, formato WOFF2):
+- Fraunces — SIL Open Font License 1.1 — https://github.com/undercasetype/Fraunces
+- IBM Plex Sans / IBM Plex Mono — SIL Open Font License 1.1 — https://github.com/IBM/plex
+Empaquetadas desde @fontsource (https://fontsource.org).

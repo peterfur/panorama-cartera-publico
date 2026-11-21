@@ -1,0 +1,13 @@
+# Secretos: la clave de Alpha Vantage no se sube nunca
+.env
+
+# Copias de seguridad locales (el historial ya lo lleva git)
+data/backups/
+*.tmp
+
+node_modules/
+.DS_Store
+Thumbs.db
+
+# Extractos originales de los brókers: se importan, pero no se suben
+extractos/

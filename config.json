@@ -1,0 +1,13 @@
+{
+  "titular": "",
+  "autoCommit": true,
+  "autoPush": false,
+  "alphaVantage": {
+    "delayMs": 1300,
+    "cacheMinutes": 15,
+    "autoFx": [
+      "USD"
+    ],
+    "symbols": {}
+  }
+}

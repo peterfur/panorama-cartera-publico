@@ -1,0 +1,4 @@
+# Finales de línea iguales en Windows, macOS y Linux: así los diffs de los datos son limpios.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.woff2 binary

@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Panorama de Cartera</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231E6E52'/%3E%3Cpath d='M7 22l6-7 4 4 8-10' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="is-loading">
+
+<nav class="topnav" id="topnav" aria-label="Secciones de la página">
+  <div class="topnav-inner">
+    <a href="#resumen" class="topnav-brand" data-section="resumen"><span class="dot"></span>Cartera</a>
+    <details class="topnav-jump" id="topnav-jump">
+      <summary><span id="topnav-jump-label">Resumen</span></summary>
+      <div class="topnav-menu topnav-jump-menu" id="topnav-jump-menu" role="menu"></div>
+    </details>
+    <div class="topnav-links" id="topnav-links">
+      <a href="#resumen" data-section="resumen">Resumen</a>
+      <a href="#distribucion" data-section="distribucion">Distribución</a>
+      <a href="#evolucion" data-section="evolucion">Evolución</a>
+      <a href="#accounts" data-section="accounts">Cuentas</a>
+      <a href="#contributions" data-section="contributions">Aportaciones</a>
+      <a href="#holdings" data-section="holdings">Posiciones</a>
+      <a href="#dividends" data-section="dividends">Dividendos</a>
+      <a href="#realized" data-section="realized">Realizado</a>
+      <a href="#behavior" data-section="behavior">Operativa</a>
+      <a href="#irpf" data-section="irpf">IRPF</a>
+      <a href="#journal" data-section="journal">Historial</a>
+    </div>
+    <div class="topnav-right">
+      <a href="#checks" id="topnav-checks" class="topnav-pill" data-section="checks" title="Ir a Comprobaciones"></a>
+      <button type="button" id="theme-toggle" class="topnav-icon-btn" aria-label="Cambiar tema claro/oscuro" title="Cambiar tema claro/oscuro"></button>
+      <details class="topnav-actions" id="topnav-actions">
+        <summary>Acciones</summary>
+        <div class="topnav-menu" role="menu">
+          <button type="button" role="menuitem" data-open="open-price-modal" data-broker="degiro">↻ Actualizar precios</button>
+          <button type="button" role="menuitem" data-open="open-import-modal">⇪ Importar extractos</button>
+          <button type="button" role="menuitem" data-open="open-mov-modal" data-broker="degiro">＋ Registrar movimiento</button>
+          <button type="button" role="menuitem" data-open="open-export-modal">⇩ Exportar informe</button>
+        </div>
+      </details>
+    </div>
+  </div>
+</nav>
+
+<div class="hero" id="resumen">
+  <div class="wrap hero-inner">
+    <div class="eyebrow"><span class="dot"></span><span id="eyebrow-text">Cartera personal</span></div>
+    <h1 class="title">Panorama de cartera</h1>
+    <p class="subtitle"><span id="subtitle-brokers">Vista consolidada de tus cuentas de inversión — <b>Interactive Brokers</b> y <b>DEGIRO</b> —</span> en una aplicación local: los datos viven en tu ordenador y cada cambio queda registrado. Cifras en euros salvo que se indique lo contrario.</p>
+    <div class="hero-actions">
+      <button type="button" id="open-price-modal" class="btn-update" data-broker="degiro">↻ Actualizar precios</button>
+      <button type="button" id="open-import-modal" class="btn-update">⇪ Importar extractos</button>
+      <button type="button" id="open-mov-modal" class="btn-update" data-broker="degiro">＋ Registrar movimiento</button>
+      <button type="button" id="open-export-modal" class="btn-update">⇩ Exportar informe</button>
+      <a href="#checks" id="checks-pill" class="status-pill"></a>
+      <a href="#journal" class="hero-link">Historial de cambios</a>
+    </div>
+    <div class="app-status" id="app-status"></div>
+    <div class="notice warn price-notice" id="price-notice" hidden></div>
+    <div id="stat-row" class="stat-row"></div>
+    <div id="welcome" class="card welcome" hidden>
+      <h2 class="section-title">Empieza importando tus extractos</h2>
+      <p>La aplicación funciona con una cuenta de DEGIRO, de Interactive Brokers o con las dos. Exporta los extractos en CSV, con la web del bróker en español, e impórtalos aquí: se calcula todo lo demás.</p>
+      <ul>
+        <li><b>DEGIRO</b>: Actividad → Estado de cuenta → desde la fecha en que abriste la cuenta → Exportar → CSV.</li>
+        <li><b>Interactive Brokers</b>: Rendimiento e informes → Extractos → Actividad → CSV. Como máximo un año por informe: exporta los que hagan falta desde la apertura.</li>
+      </ul>
+      <button type="button" class="btn-primary" id="welcome-import">⇪ Importar extractos</button>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <section id="distribucion">
+    <div class="section-head">
+      <h2 class="section-title">Distribución de la cartera</h2>
+      <span class="section-note" id="note-distribution"></span>
+    </div>
+    <div class="card dist-card">
+      <div class="dist-chart">
+        <div class="donut-wrap" id="donut-wrap">
+          <svg id="donut" class="donut" viewBox="0 0 320 320" role="img"></svg>
+          <div class="donut-center" id="donut-center" aria-hidden="true"></div>
+        </div>
+      </div>
+      <div class="dist-list-wrap">
+        <ol class="dist-list" id="dist-list"></ol>
+      </div>
+    </div>
+    <p class="footnote" id="dist-footnote"></p>
+  </section>
+
+  <section id="evolucion">
+    <div class="section-head">
+      <h2 class="section-title">Evolución frente a los índices</h2>
+      <span class="section-note" id="note-evolution">El mismo dinero, en las mismas fechas, metido en cada índice</span>
+    </div>
+    <div id="bench-body"></div>
+  </section>
+
+  <section id="accounts">
+    <div class="section-head">
+      <h2 class="section-title">Las dos cuentas</h2>
+      <span class="section-note">Datos de cada bróker, en su propia moneda de referencia (EUR)</span>
+    </div>
+    <div class="accounts-grid">
+      <div class="acct-card" id="ibkr-card" data-broker="ibkr"></div>
+      <div class="acct-card" id="degiro-card" data-broker="degiro"></div>
+    </div>
+  </section>
+
+  <section id="contributions">
+    <div class="section-head">
+      <h2 class="section-title">Aportaciones acumuladas</h2>
+      <span class="section-note" id="note-contrib"></span>
+    </div>
+    <div class="chart-card">
+      <div class="chart-legend">
+        <span class="legend-item" data-broker="degiro"><span class="legend-swatch" style="background:var(--degiro)"></span>DEGIRO</span>
+        <span class="legend-item" data-broker="ibkr"><span class="legend-swatch" style="background:var(--ibkr)"></span>Interactive Brokers</span>
+      </div>
+      <div class="chart-wrap" id="contrib-chart"></div>
+    </div>
+  </section>
+
+  <section id="holdings">
+    <div class="section-head">
+      <h2 class="section-title">Posiciones abiertas</h2>
+      <span class="section-note" id="note-holdings"></span>
+    </div>
+
+    <div id="holdings-ibkr" data-broker="ibkr">
+    <h3 style="font-size:.95rem;margin:0 0 10px;color:var(--ink-secondary);font-weight:600;">Interactive Brokers — a precio de cierre del extracto</h3>
+    <div class="card" style="margin-bottom:28px;">
+      <div class="table-scroll">
+        <table id="ibkr-positions-table"></table>
+      </div>
+      <p class="footnote">Precio y coste en la divisa nativa de cada valor; la rentabilidad % se calcula en esa misma divisa, sin conversión, por lo que es exacta. La plusvalía en euros es la que reporta directamente el extracto de Interactive Brokers.</p>
+    </div>
+    </div>
+
+    <div id="holdings-degiro" data-broker="degiro">
+    <h3 style="font-size:.95rem;margin:0 0 10px;color:var(--ink-secondary);font-weight:600;">DEGIRO — coste invertido frente a valor de hoy, por posición</h3>
+    <div class="chart-card" style="margin-bottom:14px;">
+      <div class="chart-legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--hairline-strong)"></span>Coste (del extracto)</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--degiro)"></span>Valor hoy (cotización de mercado)</span>
+      </div>
+      <div class="chart-wrap" id="degiro-holdings-chart"></div>
+    </div>
+    <div class="card">
+      <div class="table-scroll">
+        <table id="degiro-positions-table"></table>
+      </div>
+      <p class="footnote" id="degiro-table-note"></p>
+    </div>
+    </div>
+  </section>
+
+  <section id="dividends">
+    <div class="section-head">
+      <h2 class="section-title">Dividendos por posición</h2>
+      <span class="section-note">Bruto en euros, ambas cuentas · histórico completo</span>
+    </div>
+    <div class="chart-card" style="margin-bottom:14px;">
+      <div class="chart-legend">
+        <span class="legend-item" data-broker="ibkr"><span class="legend-swatch" style="background:var(--ibkr)"></span>Interactive Brokers</span>
+        <span class="legend-item" data-broker="degiro"><span class="legend-swatch" style="background:var(--degiro)"></span>DEGIRO</span>
+      </div>
+      <div class="chart-wrap" id="dividends-chart"></div>
+    </div>
+    <div class="card">
+      <div class="table-scroll">
+        <table id="dividends-table"></table>
+      </div>
+      <p class="footnote">Los dividendos cobrados en otra divisa se pasan a euros con el tipo de cambio real de su conversión, tal como aparece en el propio extracto. Los marcados con <span class="approx-flag">≈</span> son estimaciones: el bróker aún no los había convertido, o proceden de datos anteriores a la importación de extractos.</p>
+    </div>
+  </section>
+
+  <section id="realized">
+    <div class="section-head">
+      <h2 class="section-title">Resultado realizado — posiciones cerradas (DEGIRO)</h2>
+      <span class="section-note" id="note-realized"></span>
+    </div>
+    <div class="chart-card" style="margin-bottom:14px;">
+      <div class="chart-wrap" id="realized-chart"></div>
+    </div>
+    <div class="card">
+      <div class="table-scroll">
+        <table id="realized-table"></table>
+      </div>
+      <p class="footnote">Ganancia o pérdida realizada por posición, calculada por coste medio (todas las compras de un valor menos las ventas correspondientes, incluyendo comisiones). Si un mismo valor se vende en una divisa o bolsa y se recompra en otra, el extracto de DEGIRO lo registra como cierre y apertura de una posición nueva.</p>
+    </div>
+  </section>
+
+  <section id="behavior">
+    <div class="section-head">
+      <h2 class="section-title">Cómo ha evolucionado tu forma de invertir</h2>
+      <span class="section-note" id="note-behavior"></span>
+    </div>
+    <div class="chart-card" style="margin-bottom:14px;">
+      <div class="chart-legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--degiro)"></span>Nº de operaciones</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--brand); border-radius:50%; width:8px; height:8px;"></span>Ticket medio de compra</span>
+      </div>
+      <div class="chart-wrap" id="quarterly-chart"></div>
+    </div>
+
+    <div class="compare-grid" style="margin-bottom:14px;">
+      <div class="card compare-card">
+        <div class="compare-title" id="cmp-early-title">Periodo anterior</div>
+        <div class="compare-row"><span>Cierres</span><b id="cmp-early-n"></b></div>
+        <div class="compare-row"><span>Acierto</span><b id="cmp-early-wr"></b></div>
+        <div class="compare-row"><span>Resultado neto</span><b id="cmp-early-net"></b></div>
+      </div>
+      <div class="card compare-card">
+        <div class="compare-title" id="cmp-late-title">Último periodo</div>
+        <div class="compare-row"><span>Cierres</span><b id="cmp-late-n"></b></div>
+        <div class="compare-row"><span>Acierto</span><b id="cmp-late-wr"></b></div>
+        <div class="compare-row"><span>Resultado neto</span><b id="cmp-late-net"></b></div>
+      </div>
+      <div class="card compare-card">
+        <div class="compare-title">Cierres rápidos <span class="approx-flag">≤14 días</span></div>
+        <div class="compare-row"><span>Cierres</span><b id="cmp-fast-n"></b></div>
+        <div class="compare-row"><span>Acierto</span><b id="cmp-fast-wr"></b></div>
+        <div class="compare-row"><span>Resultado neto</span><b id="cmp-fast-net"></b></div>
+      </div>
+      <div class="card compare-card">
+        <div class="compare-title">Cierres pausados <span class="approx-flag">&gt;14 días</span></div>
+        <div class="compare-row"><span>Cierres</span><b id="cmp-slow-n"></b></div>
+        <div class="compare-row"><span>Acierto</span><b id="cmp-slow-wr"></b></div>
+        <div class="compare-row"><span>Resultado neto</span><b id="cmp-slow-net"></b></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--good); border-radius:50%; width:8px; height:8px;"></span>Cierre con ganancia</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--critical); border-radius:50%; width:8px; height:8px;"></span>Cierre con pérdida</span>
+      </div>
+      <div class="chart-wrap" id="episodes-chart"></div>
+      <p class="footnote" style="margin-top:2px;">Cada punto es una posición cerrada: en el eje horizontal, la fecha de cierre; en el vertical, cuántos días estuvo abierta. El tamaño del punto refleja la magnitud del resultado (ganancia o pérdida).</p>
+    </div>
+  </section>
+
+  <section id="irpf">
+    <div class="section-head">
+      <h2 class="section-title">Simulación fiscal del IRPF</h2>
+      <span class="section-note" id="note-irpf">España (territorio común) · FIFO global por ISIN y regla de los 2 meses</span>
+    </div>
+    <div id="irpf-body"></div>
+  </section>
+
+  <section id="checks">
+    <div class="section-head">
+      <h2 class="section-title">Comprobaciones</h2>
+      <span class="section-note" id="note-checks"></span>
+    </div>
+    <div class="card">
+      <div id="checks-list"></div>
+      <p class="footnote">Cada línea compara una cifra guardada con la misma cifra recalculada por otro camino. Se ejecutan al abrir la página y antes de cada guardado: si un cambio hiciera que los datos dejaran de cuadrar, no se guarda. También puedes lanzarlas desde la terminal con <span class="mono">npm run check</span>.</p>
+    </div>
+  </section>
+
+  <section id="journal">
+    <div class="section-head">
+      <h2 class="section-title">Historial de cambios</h2>
+      <span class="section-note" id="note-journal"></span>
+    </div>
+    <div class="card">
+      <div class="table-scroll"><table id="journal-table"></table></div>
+      <div class="journal-actions">
+        <button type="button" id="undo-btn" class="btn-secondary">↶ Deshacer el último cambio</button>
+        <span id="undo-status" class="modal-status"></span>
+      </div>
+      <p class="footnote" id="journal-note"></p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="methodology">
+      <div>
+        <h3>Fuentes</h3>
+        <p id="sources-text"></p>
+      </div>
+      <div>
+        <h3>Notas de método</h3>
+        <p>
+          Las cifras salen de los extractos de cada bróker. En DEGIRO se reconstruyen movimiento a movimiento desde el estado de cuenta: coste por coste medio con comisiones incluidas, resultado realizado, dividendos, comisiones y aportaciones netas son exactos. En Interactive Brokers, las posiciones, el efectivo y el valor de la cuenta son los del último informe de actividad, y las aportaciones, dividendos y comisiones se suman entre informes sin repetir lo que se solapa.
+        </p>
+      </div>
+    </div>
+    <div style="margin-bottom:20px;">
+      <h3 id="price-sources-heading">Fuentes de precios de mercado (valor y rentabilidad de DEGIRO)</h3>
+      <p id="price-sources"></p>
+      <p style="margin-top:10px;" id="fx-note">Tipos de cambio usados para pasar estos precios a euros: 1 EUR = <span id="fx-rates"></span>.</p>
+    </div>
+    <p id="footer-closing-note"></p>
+  </footer>
+
+</div>
+
+<div class="modal-overlay" id="price-modal-overlay" style="display:none;">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="price-modal-title">
+    <div class="modal-head">
+      <h3 id="price-modal-title">Actualizar precios de DEGIRO</h3>
+      <button type="button" id="modal-close" class="modal-close-btn" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="footnote" id="price-modal-intro"></p>
+      <div class="modal-section">
+        <h4>Tipos de cambio <span class="approx-flag">(1 EUR =)</span></h4>
+        <div class="fx-grid" id="fx-inputs"></div>
+      </div>
+      <div class="modal-section">
+        <h4>Posiciones DEGIRO</h4>
+        <div id="degiro-price-inputs" class="price-input-grid"></div>
+      </div>
+      <div class="modal-section" id="bench-price-section" hidden>
+        <h4>Índices de referencia <span class="approx-flag">(para la gráfica de comparación; no se guardan como precio)</span></h4>
+        <div id="bench-price-inputs" class="price-input-grid"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span id="modal-status" class="modal-status"></span>
+      <button type="button" id="modal-retry" class="btn-secondary">🔄 Reintentar automático</button>
+      <button type="button" id="modal-cancel" class="btn-secondary">Cancelar</button>
+      <button type="button" id="modal-save" class="btn-primary">Recalcular y guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="export-modal-overlay" style="display:none;">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
+    <div class="modal-head">
+      <h3 id="export-modal-title">Exportar informe</h3>
+      <button type="button" id="export-close" class="modal-close-btn" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="footnote" style="margin-top:0;">Un único documento con toda la cartera en tablas: resumen, posiciones con su peso, dividendos, resultado realizado, aportaciones, costes y operativa. Está pensado para leerlo fuera de la aplicación o dárselo a una IA para que lo analice: incluye las fechas de los datos y cómo se calcula cada cifra.</p>
+      <label class="check-row"><input type="checkbox" id="export-anon" checked> <span>Ocultar mi nombre y el número de cuenta</span></label>
+      <label class="check-row"><input type="checkbox" id="export-trades" checked> <span>Incluir el listado de todas las operaciones</span></label>
+      <div class="export-options">
+        <div class="export-option">
+          <div><b>HTML</b><div class="row-sub">Un archivo que se abre en cualquier navegador y que las IA leen bien.</div></div>
+          <button type="button" class="btn-primary" id="export-html">Descargar HTML</button>
+        </div>
+        <div class="export-option">
+          <div><b>PDF</b><div class="row-sub">Abre el informe y el cuadro de imprimir: elige «Guardar como PDF» como impresora.</div></div>
+          <button type="button" class="btn-primary" id="export-pdf">Guardar como PDF…</button>
+        </div>
+        <div class="export-option">
+          <div><b>Texto</b><div class="row-sub">Lo mismo en texto con tablas (Markdown), para pegarlo directamente en un chat.</div></div>
+          <span class="export-buttons"><button type="button" class="btn-secondary" id="export-copy">Copiar</button><button type="button" class="btn-secondary" id="export-md">Descargar</button></span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span id="export-status" class="modal-status"></span>
+      <button type="button" id="export-cancel" class="btn-secondary">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="import-modal-overlay" style="display:none;">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+    <div class="modal-head">
+      <h3 id="import-modal-title">Importar extractos</h3>
+      <button type="button" id="import-close" class="modal-close-btn" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="footnote" style="margin-top:0;">Elige uno o varios archivos CSV. Pueden ser de los dos brókers a la vez y sus fechas pueden solaparse entre sí o con lo que ya importaste: cada apunte se reconoce y <b>no se cuenta dos veces</b>. Antes de guardar verás qué es nuevo y cómo cambian las cifras.</p>
+      <ul class="import-how">
+        <li><b>DEGIRO</b> — Actividad → Estado de cuenta → elige las fechas → Exportar → CSV.</li>
+        <li><b>Interactive Brokers</b> — Rendimiento e informes → Extractos → Actividad → formato CSV. Como máximo un año por informe: exporta los que hagan falta.</li>
+      </ul>
+      <label class="drop-zone" id="import-drop" for="import-files">
+        <input type="file" id="import-files" accept=".csv,text/csv" multiple>
+        <span class="drop-title">Elegir archivos CSV…</span>
+        <span class="drop-sub">o arrástralos aquí</span>
+      </label>
+      <div id="import-preview"></div>
+    </div>
+    <div class="modal-foot">
+      <span id="import-status" class="modal-status"></span>
+      <button type="button" id="import-cancel" class="btn-secondary">Cancelar</button>
+      <button type="button" id="import-save" class="btn-primary" disabled>Importar y guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="mov-modal-overlay" style="display:none;">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="mov-modal-title">
+    <div class="modal-head">
+      <h3 id="mov-modal-title">Registrar movimiento de DEGIRO</h3>
+      <button type="button" id="mov-close" class="modal-close-btn" aria-label="Cerrar">×</button>
+    </div>
+    <form id="mov-form" class="modal-form" novalidate>
+      <div class="modal-body">
+        <div class="type-tabs" id="mov-types" role="tablist"></div>
+        <p class="footnote" id="mov-help" style="margin-top:12px;"></p>
+        <div class="form-grid" id="mov-fields"></div>
+        <div class="mov-preview" id="mov-preview"></div>
+      </div>
+      <div class="modal-foot">
+        <span id="mov-status" class="modal-status"></span>
+        <button type="button" id="mov-cancel" class="btn-secondary">Cancelar</button>
+        <button type="submit" id="mov-save" class="btn-primary">Registrar y guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+<div class="toast" id="toast" role="status"></div>
+<div class="fatal" id="fatal" style="display:none;"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
