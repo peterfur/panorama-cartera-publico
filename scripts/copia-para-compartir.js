@@ -31,7 +31,7 @@ if (fs.existsSync(target)) {
 }
 
 const INCLUDE = [
-  'server.js', 'package.json', 'README.md', 'DOCUMENTACION-TECNICA.md', '.gitignore', '.gitattributes', '.env.example',
+  'server.js', 'package.json', 'README.md', 'DOCUMENTACION-TECNICA.md', '.gitignore', '.gitattributes',
   'iniciar.bat', 'iniciar.command', 'configurar-git.bat', 'crear-copia-para-compartir.bat',
   'lib', 'public', 'scripts/check.js', 'scripts/copia-para-compartir.js', 'scripts/instalar-node.ps1',
 ];
@@ -51,6 +51,19 @@ const cfg = {
   alphaVantage: { delayMs: 1300, cacheMinutes: 15, autoFx: ['USD'], symbols: {} },
 };
 fs.writeFileSync(path.join(target, 'config.json'), JSON.stringify(cfg, null, 2) + '\n');
+const envTemplate = [
+  '# Ajustes locales de Panorama de Cartera (este archivo no se sube a GitHub: está en .gitignore).',
+  '',
+  '# Clave gratuita de Alpha Vantage: https://www.alphavantage.co/support/#api-key',
+  '# Sin clave la aplicación funciona igual, pero los precios se introducen a mano.',
+  '# También puedes pegarla directamente desde la propia página en «Actualizar precios».',
+  'ALPHAVANTAGE_API_KEY=',
+  '',
+  '# Puerto local (cambia el número si el 8765 ya está ocupado)',
+  'PORT=8765',
+  '',
+].join('\n');
+fs.writeFileSync(path.join(target, '.env'), envTemplate, 'utf8');
 fs.writeFileSync(path.join(target, MARK), 'Copia de Panorama de Cartera sin datos personales.\n');
 
 // Las pruebas no viajan: quita el script de package.json para que no falle.

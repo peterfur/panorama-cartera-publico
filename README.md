@@ -75,7 +75,7 @@ Los CSV originales no hace falta conservarlos. Si los guardas en la carpeta `ext
 1. Pide una clave gratuita en <https://www.alphavantage.co/support/#api-key>.
 2. Pulsa «Actualizar precios», pega la clave en el recuadro y pulsa «Guardar clave».
 
-La clave se guarda en el archivo `.env` de esta carpeta, que está en `.gitignore` y no se sube a GitHub. También puedes crear ese archivo a mano copiando `.env.example`.
+La clave se guarda en el archivo `.env` de esta carpeta, que está en `.gitignore` y no se sube a GitHub. También puedes escribirla directamente en el archivo `.env` de esta carpeta.
 
 El plan gratuito permite unas 25 consultas al día (1 por cada divisa en `autoFx`, 1 por cada valor con símbolo configurado y 3 opcionales para los cierres diarios de los índices). Si se alcanza el límite o no hay conexión, la ventana lo dice y deja completar a mano.
 
