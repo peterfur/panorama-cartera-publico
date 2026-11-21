@@ -33,7 +33,7 @@ No contiene datos de ninguna cartera concreta: los ejemplos son genéricos.
 
 ## 1. Qué es y principios de diseño
 
-Panorama de Cartera es un panel personal para seguir una cartera de acciones repartida entre **DEGIRO** e **Interactive Brokers (IBKR)**, o solo en una de las dos. Reúne posiciones, aportaciones, dividendos, comisiones, resultado realizado, rentabilidad (TIR) y una comparación con el S&P 500 y el Nasdaq-100.
+Panorama de Cartera es un panel personal multibróker para seguir una cartera de inversión repartida entre **DEGIRO**, **Interactive Brokers (IBKR)**, **Trading 212**, **Trade Republic**, **MyInvestor** y cualquier otro bróker mediante **OpenBrokerCSV** o **Smart Mapping** (mapeo inteligente de columnas). Reúne posiciones, aportaciones, dividendos, comisiones, resultado realizado, rentabilidad (TIR), comparación con índices (S&P 500, Nasdaq-100) y simulación fiscal del IRPF (España).
 
 Principios:
 
@@ -103,14 +103,15 @@ lib/
   movements.js            movimientos a mano y actualización de precios
   degiro.js               lectura del CSV de DEGIRO, libro sin repetidos, reconstrucción
   ibkr.js                 lectura del informe de actividad de IBKR, libro, reconstrucción
-  rebuild.js              une los dos libros y los movimientos a mano en portfolio.json
+  brokers.js              soporte multibróker (Trading 212, Trade Republic, MyInvestor, OpenBrokerCSV y Smart Mapping)
+  rebuild.js              une todos los libros (DEGIRO, IBKR, cuentas adicionales) y movimientos a mano en portfolio.json
   benchmark.js            comparación con índices y fotos del valor de la cartera
-  irpf.js                 simulación fiscal IRPF España (FIFO global, regla 2 meses, tramos)
+  irpf.js                 simulación fiscal IRPF España (FIFO global multibróker, regla 2 meses, tramos)
   report.js               informe exportable (HTML autónomo / Markdown)
   alphavantage.js         cliente mínimo de Alpha Vantage con caché
   store.js                disco: lectura/escritura atómica, copias, deshacer, git
   empty.js                cartera vacía y detección de qué cuentas tienen datos
-  csv.js                  lector/escritor de CSV (comillas, saltos de línea)
+  csv.js                  lector/escritor de CSV (comillas, saltos de línea, detección de separador , / ; / TAB)
 public/
   index.html              estructura del panel y de las ventanas
   app.js                  todo el comportamiento de la página (sin frameworks)
@@ -453,6 +454,7 @@ Reúne en una única línea temporal en euros:
 
 - **DEGIRO:** órdenes ejecutadas (`trades`, con hora y conversión real en euros), dividendos y retenciones fechados (`dividendEvents`) e intereses y préstamo de valores fechados (`interestEvents`) desde `data/degiro-movimientos.csv`.
 - **Interactive Brokers:** operaciones (`events.trades`, convertidas a euros con `proceeds_eur` o la proporción exacta `fee_eur / fee` del propio informe), dividendos y retenciones (`events.dividends`, `events.withholding`) y desdoblamientos de acciones (`events.actions`, p. ej. `Desdoblamiento 2 para 1`), desde `data/ibkr-extractos.json`.
+- **Brókers adicionales (`data/brokers-movimientos.json`):** operaciones, dividendos, retenciones e intereses fechados de Trading 212, Trade Republic, MyInvestor y cuentas importadas vía OpenBrokerCSV o Smart Mapping. Los traspasos entre fondos de MyInvestor (`Traspaso entrada` / `Traspaso salida`) no generan venta tributable en IRPF y emiten aviso explícito.
 - **Movimientos manuales activos:** los apuntes de `data.journal` aún no sustituidos por un extracto importado.
 
 ### 11.2 Método FIFO global por ISIN (art. 37.2 LIRPF)
@@ -636,14 +638,15 @@ Comportamiento general:
 | `GET /api/portfolio` | Estado completo: datos, comparación con índices, simulación fiscal IRPF, comprobaciones, configuración pública y estado (clave, git, deshacer, cuentas con datos) |
 | `GET /api/irpf/simulate` | Simula una venta hipotética (`isin`, `qty`, `price_eur`, `fee_eur`, `date`) con FIFO global, regla de los 2 meses e impacto en la cuota del ejercicio |
 | `GET /api/report` | Informe (§15) |
+| `GET /api/import/template` | Descarga plantilla CSV estándar (`plantilla-openbrokercsv.csv`) |
 | `GET /api/quote?symbol=` | Último precio de un símbolo (Alpha Vantage) |
 | `GET /api/fx?currency=` | Tipo de cambio (divisa por 1 EUR) |
 | `GET /api/indices/daily?symbol=` | Último cierre de un índice de referencia; guarda los diarios |
 | `POST /api/apikey` | Guarda la clave en `.env` |
 | `POST /api/indices/refresh` | Descarga el histórico de los índices y hace commit de `indices.json` |
-| `POST /api/prices` | Guarda precios y tipos de cambio |
-| `POST /api/import/preview` | Vista previa de una importación (no escribe) |
-| `POST /api/import` | Importa extractos |
+| `POST /api/prices` | Guarda precios y tipos de cambio (DEGIRO y cuentas adicionales) |
+| `POST /api/import/preview` | Vista previa de importación multibróker o solicitud de Smart Mapping (`needsMapping`) |
+| `POST /api/import` | Importa extractos (acepta `files` y `mappings` opcionales) |
 | `POST /api/movements` | Registra un movimiento a mano |
 | `POST /api/undo` | Deshace el último guardado |
 
@@ -665,16 +668,17 @@ Las respuestas de error tienen la forma `{ error: { code, message, field? } }`.
 
 ## 18. Pruebas
 
-`npm test` (`node --test`) ejecuta unas 95 pruebas:
+`npm test` (`node --test`) ejecuta 104 pruebas:
 
 - **Cálculo:** XIRR (incluidos tramos `< 1 día` y casos sin cambio de signo), recálculo completo, préstamo de valores y descomposición del rendimiento.
 - **Movimientos:** cada tipo, validaciones y casos límite (ventas parciales y totales, posiciones nuevas, mismo ISIN en otra divisa).
-- **Importación:**
-  - lectura de los dos formatos;
-  - solapes sin duplicados;
-  - orden de importación indiferente;
+- **Importación y multibróker (`test/import.test.js`, `test/brokers.test.js`):**
+  - lectura de DEGIRO, IBKR, Trading 212 (columnas dinámicas y comisiones FX), Trade Republic (app nativa y `pytr` con `;`, filtrado de tarjeta/saveback), MyInvestor/Inversis (fechas `DD/MM/AAAA`, decimales españoles, traspasos sin tributar y aportaciones inferidas), OpenBrokerCSV y Smart Mapping para CSV personalizados;
+  - detección automática de separadores CSV (`,`, `;`, `TAB`);
+  - solapes sin duplicados y orden de importación indiferente;
   - huecos y bloqueos;
   - sustitución de movimientos a mano;
+  - actualización de precios en cuentas adicionales, IRPF FIFO + regla de los 2 meses cruzada entre brókers, informe consolidado y deshacer;
   - cartera vacía y una sola cuenta.
 - **Índices:** interpolación, compra y venta de participaciones, conversión de divisa, unión semanal + diario, fotos y cartera con solo IBKR.
 - **IRPF (España):** cómputo de 2 meses (art. 5 CC), escalas 2023–2024 y 2025+, FIFO global DEGIRO + IBKR con splits, regla antiaplicación de los 2 meses (bloqueo proporcional, exención en cierre total sin recompra, liberación posterior, ventanas activas), compensación cruzada del 25 %, arrastre y caducidad a 4 años, DDI orientativa y simulador `GET /api/irpf/simulate`.
@@ -701,6 +705,13 @@ Las pruebas usan un Alpha Vantage simulado (un servidor HTTP local), así que no
 ---
 
 ## 20. Registro de cambios
+
+- **2026-11-21 — Soporte multibróker flexible (Trading 212, Trade Republic, MyInvestor, OpenBrokerCSV y Smart Mapping):**
+  - Ampliado `lib/csv.js` con autodetección de separador (`,`, `;`, `TAB`) manteniendo 100 % de compatibilidad con DEGIRO e IBKR.
+  - Añadido `lib/brokers.js` con detección automática para **Trading 212** (columnas dinámicas, comisiones FX, retenciones), **Trade Republic** (app nativa, `pytr` y formato Pocket Portfolio, filtrado de tarjeta/saveback), **MyInvestor / Inversis** (fechas `DD/MM/AAAA`, decimales españoles, traspasos entre fondos sin tributar en IRPF y estimación automática de aportaciones en CSV solo de operaciones), **OpenBrokerCSV** y **Smart Mapping** para cualquier otro bróker.
+  - Nuevo libro deduplicado `data/brokers-movimientos.json` integrado en `lib/store.js` (copias de seguridad, deshacer y git), `lib/rebuild.js`, `lib/calc.js`, `lib/checks.js`, `lib/movements.js` (`applyPrices` también actualiza precios de cuentas adicionales), `lib/benchmark.js` (TIR conjunta con fecha de valoración propia por cuenta), `lib/irpf.js` (FIFO global y regla de los 2 meses cruzada entre todos los brókers), `lib/report.js` y `GET /api/import/template`.
+  - Interfaz adaptativa sin sobrecarga visual: modal de importación unificado con zona de arrastre, guía desplegable por bróker y panel inline de Smart Mapping; cuadrícula de cuentas con notas plegables a partir de 3 cuentas; pestañas de filtro por bróker en *Posiciones abiertas* (`Todas` + cada bróker) y paleta diferenciada en claro y oscuro (`--t212`, `--tr`, `--myinv`, `--other-broker`).
+  - Añadida suite `test/brokers.test.js` (104/104 pruebas pasando y 49/49 comprobaciones intactas).
 
 - **2026-11-21 — Simulación fiscal IRPF (España), mejoras de lógica/seguridad y rediseño de navegación:**
   - Añadido `lib/irpf.js`, sección `#irpf` en la interfaz, tabla resumen en `lib/report.js`, ruta `GET /api/irpf/simulate` y suite `test/irpf.test.js` (FIFO global por ISIN DEGIRO + IBKR, desdoblamientos, regla de los 2 meses art. 33.5.f, compensación 25 % y arrastre 4 años art. 49, tramos ahorro 2023–2024 y 2025+, DDI orientativa art. 80 y simulador «¿Y si vendo hoy?»).

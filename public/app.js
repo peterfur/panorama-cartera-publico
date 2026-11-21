@@ -116,19 +116,38 @@
   const CHECKS = PAYLOAD.checks, CHECKS_SUMMARY = PAYLOAD.checksSummary;
   const SOURCES = DATA.sources || {};
   const { ibkr, dividends, degiro_open_positions, degiro_realized, monthly, combined, behavior } = DATA;
-  // Qué cuentas tienen datos: la aplicación sirve con DEGIRO, con Interactive Brokers o con las dos.
-  const HAS = STATUS.brokers || { degiro:true, ibkr:true };
-  const NONE = !HAS.degiro && !HAS.ibkr;
-  const BOTH = HAS.degiro && HAS.ibkr;
+  const EXTRA_BROKERS = Object.values(DATA.extra_brokers || {});
+  const EXTRA_POSITIONS_ALL = EXTRA_BROKERS.flatMap(b => (b.positions || []).map(p => Object.assign({}, p, { broker_id: b.id, broker_name: b.name })));
+  const ALL_REALIZED = degiro_realized.map(r => ({ account: 'DEGIRO', broker_id: 'degiro', name: r.name, isin: r.isin, pl: r.pl }))
+    .concat(EXTRA_BROKERS.flatMap(b => (b.realized || []).map(r => ({ account: b.name, broker_id: b.id, name: r.name, isin: r.isin, pl: r.pl }))));
+
+  function brokerStyle(idOrName){
+    const k = String(idOrName || '').toLowerCase().trim();
+    if (k === 'degiro' || k.startsWith('degiro')) return { chip: 'chip-degiro', color: 'var(--degiro)' };
+    if (k === 'ibkr' || k.includes('interactive')) return { chip: 'chip-ibkr', color: 'var(--ibkr)' };
+    if (k === 'trading212' || k.includes('trading 212') || k === 't212') return { chip: 'chip-t212', color: 'var(--t212)' };
+    if (k === 'traderepublic' || k.includes('trade republic')) return { chip: 'chip-tr', color: 'var(--tr)' };
+    if (k === 'myinvestor' || k.includes('myinvestor') || k.includes('inversis')) return { chip: 'chip-myinv', color: 'var(--myinv)' };
+    return { chip: 'chip-other', color: 'var(--other-broker)' };
+  }
+
+  // Qué cuentas tienen datos: la aplicación sirve con cualquier combinación de brókers.
+  const HAS = STATUS.brokers || { degiro:true, ibkr:true, extra:[] };
+  const ACTIVE_COUNT = (HAS.degiro ? 1 : 0) + (HAS.ibkr ? 1 : 0) + EXTRA_BROKERS.length;
+  const NONE = ACTIVE_COUNT === 0;
+  const BOTH = HAS.degiro && HAS.ibkr && EXTRA_BROKERS.length === 0;
+  const MULTI = ACTIVE_COUNT > 1;
+  const HAS_MARKET_PRICED = HAS.degiro || EXTRA_POSITIONS_ALL.length > 0;
 
   /* ================= QUÉ SE ENSEÑA SEGÚN LAS CUENTAS CON DATOS ================= */
   (function(){
     const hide = (el)=>{ if (el) el.hidden = true; };
     document.querySelectorAll('[data-broker]').forEach(el=>{ if (!HAS[el.dataset.broker]) hide(el); });
-    const nPositions = degiro_open_positions.length + ibkr.positions.length;
+    document.querySelectorAll('[data-needs-prices]').forEach(el=>{ if (!HAS_MARKET_PRICED) hide(el); });
+    const nPositions = degiro_open_positions.length + ibkr.positions.length + EXTRA_POSITIONS_ALL.length;
     const empty = {
       distribucion: !nPositions, evolucion: NONE, accounts: NONE, contributions: monthly.length < 2, holdings: !nPositions,
-      dividends: !dividends.length, realized: !degiro_realized.length, behavior: !behavior.quarterly.length,
+      dividends: !dividends.length, realized: !ALL_REALIZED.length, behavior: !behavior.quarterly.length,
       irpf: NONE, checks: NONE, journal: NONE && !(DATA.journal || []).length,
     };
     Object.keys(empty).forEach(id=>{ if (empty[id]) hide(document.getElementById(id)); });
@@ -137,7 +156,11 @@
       if (sec && sec.hidden) a.hidden = true;
     });
     const grid = document.querySelector('.accounts-grid');
-    if (grid && !BOTH) grid.classList.add('single');
+    if (grid && ACTIVE_COUNT === 1) grid.classList.add('single');
+    const accTitle = $('accounts-title');
+    if (accTitle){
+      accTitle.textContent = ACTIVE_COUNT === 1 ? 'Tu cuenta' : (ACTIVE_COUNT === 2 ? 'Las dos cuentas' : `Tus cuentas (${ACTIVE_COUNT})`);
+    }
     if (NONE){
       // Instalación nueva: solo la bienvenida y el botón de importar.
       hide($('stat-row')); hide($('open-export-modal')); hide($('checks-pill')); hide($('topnav-checks'));
@@ -200,18 +223,36 @@
   /* ================= HERO STAT ROW ================= */
   (function(){
     const row = document.getElementById('stat-row');
+    const extraValTotal = EXTRA_BROKERS.reduce((a,b)=>a + (b.value_total || 0), 0);
+    const extraDivGross = EXTRA_BROKERS.reduce((a,b)=>a + (b.div_gross || 0), 0);
+    const extraDivTax = EXTRA_BROKERS.reduce((a,b)=>a + (b.div_tax || 0), 0);
+    const totalPositionsVal = (HAS.degiro ? combined.degiro_value_total : 0) + (HAS.ibkr ? ibkr.stocks_value : 0) + extraValTotal;
+    const valSub = BOTH
+      ? `hoy · IBKR ${eurShort(ibkr.nav_final)} + DEGIRO ${eurShort(combined.degiro_value_total)} en posiciones`
+      : (ACTIVE_COUNT > 2
+        ? `${ACTIVE_COUNT} cuentas · ${eurShort(totalPositionsVal)} en posiciones`
+        : (ACTIVE_COUNT === 2
+          ? `2 cuentas · ${eurShort(totalPositionsVal)} en posiciones`
+          : (HAS.degiro
+            ? `hoy · ${eurShort(combined.degiro_value_total)} en posiciones y ${eurShort(combined.degiro_cash_wallet)} de efectivo`
+            : (HAS.ibkr
+              ? `al ${isoLabel(ibkr.period_end)}, fecha del último informe`
+              : (EXTRA_BROKERS[0] ? `${EXTRA_BROKERS[0].name} · ${eurShort(EXTRA_BROKERS[0].value_total)} en posiciones` : '')))));
+    const contribSub = BOTH
+      ? `IBKR ${eurShort(combined.ibkr_contributions)} · DEGIRO ${eurShort(combined.degiro_contributions)}`
+      : (ACTIVE_COUNT > 1 ? `ingresos menos retiradas · ${ACTIVE_COUNT} brókers` : 'ingresos menos retiradas');
     const tiles = [
-      { label:'Valor total de la cartera', value: eur(combined.portfolio_value_total), sub: BOTH ? `hoy · IBKR ${eurShort(ibkr.nav_final)} + DEGIRO ${eurShort(combined.degiro_value_total)} en posiciones` : (HAS.degiro ? `hoy · ${eurShort(combined.degiro_value_total)} en posiciones y ${eurShort(combined.degiro_cash_wallet)} de efectivo` : `al ${isoLabel(ibkr.period_end)}, fecha del último informe`) },
-      { label:'Aportaciones netas totales', value: eur(combined.total_contributions), sub: BOTH ? `IBKR ${eurShort(combined.ibkr_contributions)} · DEGIRO ${eurShort(combined.degiro_contributions)}` : 'ingresos menos retiradas' },
+      { label:'Valor total de la cartera', value: eur(combined.portfolio_value_total), sub: valSub },
+      { label:'Aportaciones netas totales', value: eur(combined.total_contributions), sub: contribSub },
       { label:'Rendimiento total', value: eur(combined.portfolio_total_return,{forceSign:true}), sub: combined.portfolio_total_return_pct != null ? `${pct(combined.portfolio_total_return_pct,1)} sobre lo aportado` : 'capital recuperado (aportaciones netas ≤ 0)', pos: combined.portfolio_total_return>=0, neg: combined.portfolio_total_return<0 },
       { label:'Dividendos netos recibidos', value: eur(combined.total_div_net), custom:true },
     ];
-    tiles.forEach((t,i)=>{
+    tiles.forEach((t)=>{
       const tile = el('div','stat-tile');
       tile.appendChild(el('div','stat-label', t.label));
       tile.appendChild(el('div','stat-value', t.value));
       if (t.custom){
-        tile.appendChild(el('div','stat-sub', `bruto ${eurShort(ibkr.div_gross + combined.degiro_div_gross)} · retención ${eurShort(ibkr.div_tax + combined.degiro_div_tax)}`));
+        tile.appendChild(el('div','stat-sub', `bruto ${eurShort(ibkr.div_gross + combined.degiro_div_gross + extraDivGross)} · retención ${eurShort(ibkr.div_tax + combined.degiro_div_tax + extraDivTax)}`));
       } else {
         tile.appendChild(el('div','stat-sub' + (t.neg?' neg':'') + (t.pos?' pos':''), t.sub));
       }
@@ -271,10 +312,21 @@
         <p class="footnote"><b>Valor al ${isoLabel(ibkr.period_end)}</b>, fecha en que termina el último informe importado: posiciones, precios y efectivo (${esc(cash)}${Math.abs(ibkr.accrued_div) >= 0.005 ? `, más ${eur(ibkr.accrued_div)} de dividendo devengado` : ''}) son los de ese informe. Aportaciones, dividendos, comisiones y resultado realizado se suman operación a operación entre todos los informes, sin repetir lo que se solapa. El resultado total es el valor de la cuenta menos lo aportado, así que incluye también el efecto del tipo de cambio.</p>
         <p class="footnote" style="margin-top:8px;">La TIR la calcula la aplicación con el mismo método que la de DEGIRO, para que las dos sean comparables.${twr ? ` Rentabilidad ponderada por tiempo que da IBKR en cada informe: ${twr}.` : ''}${actions ? ` Operaciones corporativas: ${actions}.` : ''}</p>
       </div>`;
+    if (ACTIVE_COUNT >= 3){
+      const body = c.querySelector('.acct-body');
+      const notes = Array.from(body.querySelectorAll('.footnote'));
+      if (notes.length){
+        const det = el('details', 'acct-details', '<summary>Notas de cálculo</summary>');
+        notes.forEach(n => det.appendChild(n));
+        body.appendChild(det);
+      }
+    }
   })();
 
   (function(){
     const c = document.getElementById('degiro-card');
+    const footnotes = `<p class="footnote"><b>Valor y rentabilidad al ${DATA.live_meta.fetched_date_long || DATA.live_meta.fetched_date}:</b> el extracto de DEGIRO no trae cotizaciones, así que el valor de las ${degiro_open_positions.length} posiciones se ha calculado con precios de mercado ${DATA.live_meta.manual ? 'introducidos manualmente por ti' : 'consultados en Alpha Vantage'} (detalle en la tabla de posiciones y al pie de página) — a diferencia del resto de la página, que sale íntegramente de tus documentos. La TIR es la rentabilidad anualizada equivalente considerando cuándo se hizo cada aportación (método TIR/XIRR)${ibkr.xirr_pct != null && (ibkr.statements || []).length ? ', el mismo método que en la tarjeta de Interactive Brokers' : ', la misma idea que la rentabilidad ponderada de IBKR pero con metodología distinta, así que no son directamente comparables cifra a cifra'}. Se recalcula cada vez que actualizas los precios o registras un movimiento, tomando como fecha de valoración el día de la última actualización de precios.</p>
+        <p class="footnote" style="margin-top:8px;"><b>Efectivo en DEGIRO:</b> ${eur(combined.degiro_cash_wallet)} según el último saldo del extracto y los movimientos registrados después. ${combined.degiro_cash_wallet < -0.005 ? `Es un saldo deudor: se ha comprado por encima del efectivo disponible y DEGIRO cobra intereses por él (los ${eur(combined.degiro_interest)} de «Interés cuenta de efectivo»). El valor total de la cartera ya lo descuenta.` : 'El valor total de la cartera lo incluye.'}</p>`;
     c.innerHTML = `
       <div class="acct-head">
         <span class="acct-swatch" style="background:var(--degiro)"></span>
@@ -296,9 +348,43 @@
           <div><div class="kv-label">P/L realizado histórico</div><div class="kv-value ${sg(combined.degiro_realized_total)}">${eur(combined.degiro_realized_total,{forceSign:true})}</div></div>
           <div><div class="kv-label">Interés cuenta de efectivo</div><div class="kv-value ${sg(combined.degiro_interest)}">${eur(combined.degiro_interest)}</div></div>
         </div>
-        <p class="footnote"><b>Valor y rentabilidad al ${DATA.live_meta.fetched_date_long || DATA.live_meta.fetched_date}:</b> el extracto de DEGIRO no trae cotizaciones, así que el valor de las ${degiro_open_positions.length} posiciones se ha calculado con precios de mercado ${DATA.live_meta.manual ? 'introducidos manualmente por ti' : 'consultados en Alpha Vantage'} (detalle en la tabla de posiciones y al pie de página) — a diferencia del resto de la página, que sale íntegramente de tus documentos. La TIR es la rentabilidad anualizada equivalente considerando cuándo se hizo cada aportación (método TIR/XIRR)${ibkr.xirr_pct != null && (ibkr.statements || []).length ? ', el mismo método que en la tarjeta de Interactive Brokers' : ', la misma idea que la rentabilidad ponderada de IBKR pero con metodología distinta, así que no son directamente comparables cifra a cifra'}. Se recalcula cada vez que actualizas los precios o registras un movimiento, tomando como fecha de valoración el día de la última actualización de precios.</p>
-        <p class="footnote" style="margin-top:8px;"><b>Efectivo en DEGIRO:</b> ${eur(combined.degiro_cash_wallet)} según el último saldo del extracto y los movimientos registrados después. ${combined.degiro_cash_wallet < -0.005 ? `Es un saldo deudor: se ha comprado por encima del efectivo disponible y DEGIRO cobra intereses por él (los ${eur(combined.degiro_interest)} de «Interés cuenta de efectivo»). El valor total de la cartera ya lo descuenta.` : 'El valor total de la cartera lo incluye.'}</p>
+        ${ACTIVE_COUNT >= 3 ? `<details class="acct-details"><summary>Notas de cálculo y efectivo</summary>${footnotes}</details>` : footnotes}
       </div>`;
+  })();
+
+  // Tarjetas para cuentas adicionales (Trading 212, Trade Republic, MyInvestor, genéricos…)
+  (function(){
+    const grid = $('accounts-grid');
+    if (!grid || !EXTRA_BROKERS.length) return;
+    EXTRA_BROKERS.forEach(b=>{
+      const st = brokerStyle(b.id || b.name);
+      const card = el('div', 'acct-card');
+      const noteHtml = `<p class="footnote">Reconstruido desde tus extractos CSV (${num(b.movements_count,0)} movimientos del ${isoLabel(b.date_min)} al ${isoLabel(b.date_max)}). Las ${b.positions_count} posiciones abiertas se valoran con los últimos precios de mercado guardados (${esc(DATA.live_meta.fetched_date || 'última operación')}); puedes actualizarlos en «Actualizar precios».${b.cashflows_inferred ? ' Al no incluir filas de transferencias bancarias, las aportaciones se estiman según el capital invertido en compras.' : ''}</p>`;
+      card.innerHTML = `
+        <div class="acct-head">
+          <span class="acct-swatch" style="background:${st.color}"></span>
+          <div>
+            <div class="acct-name">${esc(b.name)}</div>
+            <div class="acct-meta">Historial ${isoLabel(b.date_min)} – ${isoLabel(b.date_max)} · ${num(b.movements_count,0)} movimientos</div>
+          </div>
+        </div>
+        <div class="acct-body">
+          <div class="kv-grid">
+            <div><div class="kv-label">Valor de la cuenta</div><div class="kv-value">${eur(b.nav_total)}</div></div>
+            <div><div class="kv-label">Rentabilidad anualizada (TIR)</div><div class="kv-value ${sg(b.xirr_pct)}">${b.xirr_pct != null ? pct(b.xirr_pct,2) : '—'}</div></div>
+            <div><div class="kv-label">Aportaciones netas</div><div class="kv-value">${eur(b.contributions)}</div></div>
+            <div><div class="kv-label">Resultado total (histórico)</div><div class="kv-value ${sg(b.total_return)}">${eur(b.total_return,{forceSign:true})}</div></div>
+            <div><div class="kv-label">Posiciones: coste → valor</div><div class="kv-value"><span class="nowrap">${eur(b.cost_total)}</span> → <span class="nowrap">${eur(b.value_total)}</span></div></div>
+            <div><div class="kv-label">Plusvalía no realizada</div><div class="kv-value ${sg(b.unrealized_pl)}">${eur(b.unrealized_pl,{forceSign:true})} <span class="approx-flag">(${pct(b.unrealized_pct,1)})</span></div></div>
+            <div><div class="kv-label">Dividendos netos</div><div class="kv-value ${sg(b.div_net)}">${eur(b.div_net)}</div></div>
+            <div><div class="kv-label">Comisiones y costes</div><div class="kv-value ${sg(b.fees)}">${eur(b.fees)}</div></div>
+            <div><div class="kv-label">P/L realizado histórico</div><div class="kv-value ${sg(b.realized_total)}">${eur(b.realized_total,{forceSign:true})}</div></div>
+            <div><div class="kv-label">Efectivo estimado</div><div class="kv-value">${eur(b.implied_cash)}</div></div>
+          </div>
+          ${ACTIVE_COUNT >= 3 ? `<details class="acct-details"><summary>Notas de cálculo</summary>${noteHtml}</details>` : noteHtml}
+        </div>`;
+      grid.appendChild(card);
+    });
   })();
 
   /* ================= TABLES ================= */
@@ -349,6 +435,120 @@
     t.innerHTML = thead + `<tbody>${rows}</tbody>`;
   })();
 
+  // Posiciones de cuentas adicionales + pestañas limpias cuando hay más de 2 brókers o cuentas adicionales
+  (function(){
+    const extraWrap = $('holdings-extra');
+    const tabsWrap = $('holdings-tabs');
+    const allWrap = $('holdings-all');
+    if (!extraWrap) return;
+
+    function fmtQty(n){ return num(n, n % 1 ? 4 : 0); }
+
+    // 1. Pintar bloque por cada bróker adicional con posiciones abiertas
+    EXTRA_BROKERS.forEach(b=>{
+      const pos = (b.positions || []).slice().sort((a,x)=>(x.live_value_eur||0)-(a.live_value_eur||0));
+      if (!pos.length) return;
+      const st = brokerStyle(b.id || b.name);
+      const block = el('div', 'holdings-extra-block');
+      block.dataset.holdingsBroker = b.id;
+      const rows = pos.map(p=>{
+        const hasLive = p.live_price_eur != null;
+        const posCls = hasLive ? (p.live_pl_pct>=0?'pos-val':'neg-val') : '';
+        return `<tr>
+          <td><div class="row-name">${esc(p.name)}</div><div class="row-sub">${esc(p.isin || p.ticker || '')}${p.last_price_date ? ` · última operación: ${p.last_price} ${esc(p.last_price_cur)} (${fmtDateEs(p.last_price_date)})` : ''}</div></td>
+          <td class="num">${fmtQty(p.qty)}</td>
+          <td class="num">${eur(p.cost_total)}</td>
+          <td class="num">${hasLive ? `${num(p.live_price,2)} ${esc(p.live_price_cur)}` : '—'}</td>
+          <td class="num">${hasLive ? eur(p.live_value_eur) : '—'}</td>
+          <td class="num ${posCls}">${hasLive ? pct(p.live_pl_pct,1) : '—'}</td>
+          <td class="num ${posCls}">${hasLive ? eur(p.live_pl_eur,{forceSign:true}) : '—'}</td>
+        </tr>`;
+      }).join('');
+      block.innerHTML = `
+        <h3 class="holdings-broker-title"><span class="chip ${st.chip}">${esc(b.name)}</span> — coste invertido frente a valor de hoy</h3>
+        <div class="card">
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Valor</th><th class="num">Cantidad</th><th class="num">Coste total</th><th class="num">Precio hoy</th><th class="num">Valor hoy</th><th class="num">Rent.</th><th class="num">P/L (EUR)</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+          <p class="footnote">Valorado a precios de mercado guardados (${esc(DATA.live_meta.fetched_date || 'última operación')}); actualiza sus cotizaciones desde «Actualizar precios».</p>
+        </div>`;
+      extraWrap.appendChild(block);
+    });
+
+    // 2. Si hay cuentas adicionales y >= 2 brókers con posiciones, activar pestañas de filtro limpias
+    const brokerTabs = [];
+    if (ibkr.positions.length) brokerTabs.push({ id:'ibkr', label:`IBKR (${ibkr.positions.length})` });
+    if (degiro_open_positions.length) brokerTabs.push({ id:'degiro', label:`DEGIRO (${degiro_open_positions.length})` });
+    EXTRA_BROKERS.forEach(b=>{ if ((b.positions || []).length) brokerTabs.push({ id:b.id, label:`${b.name} (${b.positions.length})` }); });
+
+    if (EXTRA_BROKERS.length && brokerTabs.length >= 2 && tabsWrap && allWrap){
+      const fxMap = (DATA.live_meta && DATA.live_meta.fx) || {};
+      const allRows = [];
+      ibkr.positions.forEach(p=>{
+        let val = p.value_eur;
+        if (val == null){ const r = p.cur === 'EUR' ? 1 : fxMap[p.cur]; val = r ? p.value / r : 0; }
+        const cost = p.cost_eur != null ? p.cost_eur : (val - (p.pl_eur || 0));
+        allRows.push({ account:'IBKR', brokerId:'ibkr', name:p.name, sub:p.isin || p.sym, qty:p.qty, cost, price:`${num(p.price,2)} ${p.cur}`, val, pl:p.pl_eur || 0, plPct:p.ret_pct });
+      });
+      degiro_open_positions.forEach(p=>{
+        allRows.push({ account:'DEGIRO', brokerId:'degiro', name:p.name, sub:p.isin, qty:p.qty, cost:p.cost_total, price:`${num(p.live_price,2)} ${p.live_price_cur}`, val:p.live_value_eur || 0, pl:p.live_pl_eur || 0, plPct:p.live_pl_pct });
+      });
+      EXTRA_POSITIONS_ALL.forEach(p=>{
+        allRows.push({ account:p.broker_name, brokerId:p.broker_id, name:p.name, sub:p.isin || p.ticker || '', qty:p.qty, cost:p.cost_total, price:`${num(p.live_price,2)} ${p.live_price_cur}`, val:p.live_value_eur || 0, pl:p.live_pl_eur || 0, plPct:p.live_pl_pct });
+      });
+      allRows.sort((a,b)=>b.val - a.val);
+
+      allWrap.innerHTML = `<div class="card"><div class="table-scroll"><table>
+        <thead><tr><th>Cuenta</th><th>Valor</th><th class="num">Cantidad</th><th class="num">Coste (EUR)</th><th class="num">Precio</th><th class="num">Valor (EUR)</th><th class="num">Rent.</th><th class="num">P/L (EUR)</th></tr></thead>
+        <tbody>${allRows.map(r=>{
+          const st = brokerStyle(r.brokerId || r.account);
+          const posCls = r.plPct >= 0 ? 'pos-val' : 'neg-val';
+          return `<tr>
+            <td><span class="chip ${st.chip}">${esc(r.account)}</span></td>
+            <td><div class="row-name">${esc(r.name)}</div><div class="row-sub mono">${esc(r.sub)}</div></td>
+            <td class="num">${fmtQty(r.qty)}</td>
+            <td class="num">${eur(r.cost)}</td>
+            <td class="num">${esc(r.price)}</td>
+            <td class="num">${eur(r.val)}</td>
+            <td class="num ${posCls}">${pct(r.plPct,1)}</td>
+            <td class="num ${posCls}">${eur(r.pl,{forceSign:true})}</td>
+          </tr>`;
+        }).join('')}</tbody></table></div>
+        <p class="footnote">Vista consolidada de las ${allRows.length} posiciones abiertas en tus ${brokerTabs.length} brókers. Pulsa una pestaña arriba para ver el detalle y gráfico de cada bróker por separado.</p></div>`;
+
+      const tabs = [{ id:'all', label:`Todas (${allRows.length})` }].concat(brokerTabs);
+      let activeTab = 'all';
+      tabsWrap.hidden = false;
+      tabsWrap.innerHTML = `<div class="type-tabs" role="tablist" aria-label="Filtrar posiciones por bróker">${
+        tabs.map(tb=>`<button type="button" role="tab" class="type-tab${tb.id === activeTab ? ' active' : ''}" data-htab="${esc(tb.id)}" aria-selected="${tb.id === activeTab}">${esc(tb.label)}</button>`).join('')
+      }</div>`;
+
+      function applyTab(tabId){
+        activeTab = tabId;
+        tabsWrap.querySelectorAll('[data-htab]').forEach(btn=>{
+          const on = btn.dataset.htab === tabId;
+          btn.classList.toggle('active', on);
+          btn.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        allWrap.hidden = tabId !== 'all';
+        const ibEl = $('holdings-ibkr'), degEl = $('holdings-degiro');
+        if (ibEl) ibEl.hidden = !(tabId === 'ibkr' && HAS.ibkr);
+        if (degEl) degEl.hidden = !(tabId === 'degiro' && HAS.degiro);
+        extraWrap.querySelectorAll('[data-holdings-broker]').forEach(bEl=>{
+          bEl.hidden = tabId !== bEl.dataset.holdingsBroker;
+        });
+      }
+      tabsWrap.addEventListener('click', (ev)=>{
+        const btn = ev.target.closest('[data-htab]');
+        if (btn) applyTab(btn.dataset.htab);
+      });
+      applyTab('all');
+    }
+  })();
+
   // Dividends
   (function(){
     const t = document.getElementById('dividends-table');
@@ -357,9 +557,9 @@
     </tr></thead>`;
     let rows = dividends.map(d=>{
       const net = d.gross_eur + d.tax_eur;
-      const chip = d.account==='IBKR' ? 'chip-ibkr' : 'chip-degiro';
+      const st = brokerStyle(d.broker_id || d.account);
       return `<tr>
-        <td><span class="chip ${chip}">${d.account}</span></td>
+        <td><span class="chip ${st.chip}">${esc(d.account)}</span></td>
         <td class="row-name">${esc(d.name)}</td>
         <td class="num">${d.approx?'≈ ':''}${eur(d.gross_eur)}</td>
         <td class="num neg-val">${d.approx?'≈ ':''}${eur(d.tax_eur)}</td>
@@ -367,15 +567,32 @@
       </tr>`;
     }).join('');
     t.innerHTML = thead + `<tbody>${rows}</tbody>`;
+    const leg = $('dividends-legend');
+    if (leg && EXTRA_BROKERS.length){
+      const accs = Array.from(new Set(dividends.map(d=>d.account)));
+      leg.innerHTML = accs.map(acc=>{
+        const st = brokerStyle(acc);
+        return `<span class="legend-item"><span class="legend-swatch" style="background:${st.color}"></span>${esc(acc)}</span>`;
+      }).join('');
+    }
   })();
 
   // Realized
   (function(){
     const t = document.getElementById('realized-table');
-    let thead = `<thead><tr><th>Valor</th><th class="num">Resultado realizado</th></tr></thead>`;
-    let rows = degiro_realized.slice().reverse().map(r=>{
+    const multiRealized = EXTRA_BROKERS.some(b=>(b.realized || []).length > 0);
+    const titleEl = $('realized-title');
+    if (titleEl && multiRealized) titleEl.textContent = 'Resultado realizado — posiciones cerradas';
+    const sorted = ALL_REALIZED.slice().sort((a,b)=>b.pl - a.pl);
+    let thead = multiRealized
+      ? `<thead><tr><th>Cuenta</th><th>Valor</th><th class="num">Resultado realizado</th></tr></thead>`
+      : `<thead><tr><th>Valor</th><th class="num">Resultado realizado</th></tr></thead>`;
+    let rows = sorted.map(r=>{
       const cls = r.pl>=0?'pos-val':'neg-val';
-      return `<tr><td class="row-name">${esc(r.name)}</td><td class="num ${cls}">${eur(r.pl,{forceSign:true})}</td></tr>`;
+      const st = brokerStyle(r.broker_id || r.account);
+      return multiRealized
+        ? `<tr><td><span class="chip ${st.chip}">${esc(r.account)}</span></td><td class="row-name">${esc(r.name)}</td><td class="num ${cls}">${eur(r.pl,{forceSign:true})}</td></tr>`
+        : `<tr><td class="row-name">${esc(r.name)}</td><td class="num ${cls}">${eur(r.pl,{forceSign:true})}</td></tr>`;
     }).join('');
     t.innerHTML = thead + `<tbody>${rows}</tbody>`;
   })();
@@ -457,6 +674,11 @@
       add(p.isin || ('IBKR:' + p.sym), { account:'IBKR', isin:p.isin || p.sym, name:p.name, qty:p.qty, price:p.price, cur:p.cur,
         value:v, cost: p.cost_eur != null ? p.cost_eur : v - pl, pl });
     });
+    EXTRA_POSITIONS_ALL.forEach(p=>{
+      const kPos = p.isin || `${p.broker_id}:${p.ticker || p.name}`;
+      add(kPos, { account:p.broker_name, isin:p.isin || p.ticker || '', name:p.name, qty:p.qty, price:p.live_price, cur:p.live_price_cur || p.last_price_cur,
+        value:p.live_value_eur || 0, cost:p.cost_total, pl:p.live_pl_eur || 0 });
+    });
     const list = Array.from(map.values()).filter(h=>h.value > 0).sort((a,b)=>b.value - a.value);
     const total = list.reduce((a,h)=>a + h.value, 0);
     list.forEach(h=>{ h.share = total ? h.value / total * 100 : 0; h.plPct = h.cost ? h.pl / h.cost * 100 : 0; });
@@ -498,9 +720,9 @@
     document.getElementById('note-distribution').textContent =
       `${list.length} valores · ${eur(total)} en posiciones`;
     document.getElementById('dist-footnote').innerHTML =
-      `Peso de cada valor sobre el valor de todas las posiciones${BOTH ? ' de las dos cuentas' : ''}, sin contar el efectivo. ` +
-      (nMulti.length ? `${nMulti.map(h=>esc(h.name)).join(', ')} ${nMulti.length === 1 ? 'está' : 'están'} en las dos cuentas y aparece${nMulti.length === 1 ? '' : 'n'} una sola vez, sumado. ` : '') +
-      [HAS.degiro ? `Precios de DEGIRO del ${esc(DATA.live_meta.fetched_date)}` : '', HAS.ibkr ? `${HAS.degiro ? 'los' : 'Precios'} de Interactive Brokers, del ${isoLabel(ibkr.period_end)}` : ''].filter(Boolean).join('; ') + `. Pasa el ratón (o toca) por la rueda o por la lista para ver el detalle de cada valor.`;
+      `Peso de cada valor sobre el valor de todas las posiciones${MULTI ? ' de todas tus cuentas' : ''}, sin contar el efectivo. ` +
+      (nMulti.length ? `${nMulti.map(h=>esc(h.name)).join(', ')} ${nMulti.length === 1 ? 'está' : 'están'} en varias cuentas y aparece${nMulti.length === 1 ? '' : 'n'} una sola vez, sumado. ` : '') +
+      [HAS_MARKET_PRICED && DATA.live_meta.fetched_date ? `Precios de mercado del ${esc(DATA.live_meta.fetched_date)}` : '', HAS.ibkr ? `Interactive Brokers del ${isoLabel(ibkr.period_end)}` : ''].filter(Boolean).join('; ') + `. Pasa el ratón (o toca) por la rueda o por la lista para ver el detalle de cada valor.`;
 
     /* ---- geometría ---- */
     const C = 160, R = 150, r = 96;
@@ -1054,14 +1276,33 @@
     draw();
   })();
 
-  /* ---- Chart 1: cumulative contributions, stacked area ---- */
+  /* ---- Chart 1: cumulative contributions, stacked area (all active brokers) ---- */
   (function(){
     const container = document.getElementById('contrib-chart');
     container.innerHTML = '';
     if (monthly.length < 2) return;
+    const layers = [];
+    if (HAS.degiro) layers.push({ id:'degiro', label:'DEGIRO', color:'var(--degiro)', get:(m)=>m.cum_deg || 0 });
+    if (HAS.ibkr) layers.push({ id:'ibkr', label:'Interactive Brokers', color:'var(--ibkr)', get:(m)=>m.cum_ibkr || 0 });
+    EXTRA_BROKERS.forEach(b=>{
+      const st = brokerStyle(b.id || b.name);
+      layers.push({ id:b.id, label:b.name, color:st.color, get:(m)=>((m.cum_extra_by_broker && m.cum_extra_by_broker[b.id]) || 0) });
+    });
+    if (!layers.length) return;
+
+    const leg = $('contrib-legend');
+    if (leg && EXTRA_BROKERS.length){
+      leg.innerHTML = layers.map(l=>`<span class="legend-item"><span class="legend-swatch" style="background:${l.color}"></span>${esc(l.label)}</span>`).join('');
+    }
+
+    // Valores apilados por capa para cada mes
+    const stacked = monthly.map(m=>{
+      let acc = 0;
+      return layers.map(l=>{ acc += l.get(m); return acc; });
+    });
     const W = 1100, H = 320, padL = 54, padR = 16, padT = 18, padB = 30;
     const plotW = W - padL - padR, plotH = H - padT - padB;
-    const maxVal = Math.max(...monthly.map(m=>m.cum_ibkr + m.cum_deg), 1) * 1.08;
+    const maxVal = Math.max(...stacked.map(row=>row[row.length - 1]), 1) * 1.08;
     const n = monthly.length;
     const x = i => padL + (i/(n-1)) * plotW;
     const y = v => padT + plotH - (v/maxVal) * plotH;
@@ -1069,7 +1310,6 @@
     const s = svg('svg', {viewBox:`0 0 ${W} ${H}`, class:'chart', preserveAspectRatio:'none'});
     container.appendChild(s);
 
-    // gridlines + y labels
     const gridSteps = 4;
     for (let i=0;i<=gridSteps;i++){
       const v = maxVal * i / gridSteps;
@@ -1081,7 +1321,6 @@
     }
     s.appendChild(svg('line', {x1:padL, x2:W-padR, y1:padT+plotH, y2:padT+plotH, class:'baseline'}));
 
-    // month labels (sparse)
     monthly.forEach((m,i)=>{
       if (i% Math.ceil(n/8) === 0 || i===n-1){
         const t = svg('text', {x:x(i), y:H-8, class:'axis-label', 'text-anchor':'middle'});
@@ -1090,38 +1329,31 @@
       }
     });
 
-    function areaPath(getVal){
-      let d = `M ${x(0)} ${y(0)}`;
-      monthly.forEach((m,i)=> d += ` L ${x(i)} ${y(getVal(m))}`);
-      d += ` L ${x(n-1)} ${padT+plotH} L ${x(0)} ${padT+plotH} Z`;
-      return d;
-    }
-    function linePath(getVal){
+    function bandArea(k){
       let d = '';
-      monthly.forEach((m,i)=> d += (i===0?'M':'L') + ` ${x(i)} ${y(getVal(m))}`);
+      monthly.forEach((_,i)=>{ d += (i===0?'M':'L') + ` ${x(i)} ${y(stacked[i][k])}`; });
+      for (let i = n - 1; i >= 0; i--){
+        const base = k === 0 ? 0 : stacked[i][k - 1];
+        d += ` L ${x(i)} ${y(base)}`;
+      }
+      return d + ' Z';
+    }
+    function linePath(k){
+      let d = '';
+      monthly.forEach((_,i)=> d += (i===0?'M':'L') + ` ${x(i)} ${y(stacked[i][k])}`);
       return d;
     }
 
-    const degiroColor = 'var(--degiro)';
-    const ibkrColor = 'var(--ibkr)';
-
-    // base layer: DEGIRO cumulative
-    s.appendChild(svg('path', {d:areaPath(m=>m.cum_deg), style:`fill:${degiroColor}`, opacity:0.16}));
-    s.appendChild(svg('path', {d:linePath(m=>m.cum_deg), fill:'none', style:`stroke:${degiroColor}`, 'stroke-width':2, 'stroke-linejoin':'round', 'stroke-linecap':'round'}));
-    // top layer: combined total (degiro+ibkr)
-    s.appendChild(svg('path', {d:areaPath(m=>m.cum_deg+m.cum_ibkr), style:`fill:${ibkrColor}`, opacity:0.13}));
-    s.appendChild(svg('path', {d:linePath(m=>m.cum_deg+m.cum_ibkr), fill:'none', style:`stroke:${ibkrColor}`, 'stroke-width':2, 'stroke-linejoin':'round', 'stroke-linecap':'round'}));
-
-    // endpoint dots
     const lastI = n-1;
-    s.appendChild(svg('circle', {cx:x(lastI), cy:y(monthly[lastI].cum_deg), r:3.5, style:`fill:${degiroColor}`}));
-    s.appendChild(svg('circle', {cx:x(lastI), cy:y(monthly[lastI].cum_deg+monthly[lastI].cum_ibkr), r:3.5, style:`fill:${ibkrColor}`}));
+    layers.forEach((l,k)=>{
+      s.appendChild(svg('path', {d:bandArea(k), style:`fill:${l.color}`, opacity:0.16}));
+      s.appendChild(svg('path', {d:linePath(k), fill:'none', style:`stroke:${l.color}`, 'stroke-width':2, 'stroke-linejoin':'round', 'stroke-linecap':'round'}));
+      s.appendChild(svg('circle', {cx:x(lastI), cy:y(stacked[lastI][k]), r:3.5, style:`fill:${l.color}`}));
+    });
 
-    // hover interaction
     const hoverLine = svg('line', {class:'hover-line', y1:padT, y2:padT+plotH});
-    const dot1 = svg('circle', {r:4, style:`fill:${degiroColor}`, class:'hover-dot'});
-    const dot2 = svg('circle', {r:4, style:`fill:${ibkrColor}`, class:'hover-dot'});
-    s.appendChild(hoverLine); s.appendChild(dot1); s.appendChild(dot2);
+    s.appendChild(hoverLine);
+    const hoverDots = layers.map(l=>{ const c = svg('circle', {r:4, style:`fill:${l.color}`, class:'hover-dot'}); s.appendChild(c); return c; });
 
     const overlay = svg('rect', {x:padL, y:padT, width:plotW, height:plotH, fill:'transparent'});
     s.appendChild(overlay);
@@ -1131,13 +1363,13 @@
       let i = Math.round(((relX-padL)/plotW)*(n-1));
       i = Math.max(0, Math.min(n-1, i));
       const m = monthly[i];
+      const tot = stacked[i][layers.length - 1];
       hoverLine.setAttribute('x1', x(i)); hoverLine.setAttribute('x2', x(i)); hoverLine.style.opacity=1;
-      dot1.setAttribute('cx', x(i)); dot1.setAttribute('cy', y(m.cum_deg)); dot1.style.opacity=1;
-      dot2.setAttribute('cx', x(i)); dot2.setAttribute('cy', y(m.cum_deg+m.cum_ibkr)); dot2.style.opacity=1;
-      showTooltip(ev.clientX, ev.clientY,
-        `<b>${isoMonthLabel(m.month)}</b><br/>Total acumulado: ${eur(m.cum_deg+m.cum_ibkr)}<br/>DEGIRO: ${eur(m.cum_deg)} · IBKR: ${eur(m.cum_ibkr)}`);
+      hoverDots.forEach((d,k)=>{ d.setAttribute('cx', x(i)); d.setAttribute('cy', y(stacked[i][k])); d.style.opacity=1; });
+      const breakdown = layers.map(l=>`${esc(l.label)}: ${eur(l.get(m))}`).join('<br/>');
+      showTooltip(ev.clientX, ev.clientY, `<b>${isoMonthLabel(m.month)}</b><br/>Total acumulado: ${eur(tot)}<br/>${breakdown}`);
     });
-    overlay.addEventListener('mouseleave', ()=>{ hoverLine.style.opacity=0; dot1.style.opacity=0; dot2.style.opacity=0; hideTooltip(); });
+    overlay.addEventListener('mouseleave', ()=>{ hoverLine.style.opacity=0; hoverDots.forEach(d=>{ d.style.opacity=0; }); hideTooltip(); });
   })();
 
   /* ---- generic horizontal bar chart ---- */
@@ -1268,9 +1500,9 @@
       label: d.name.length>28 ? d.name.slice(0,26)+'…' : d.name,
       fullLabel: d.name,
       value: d.gross_eur,
-      color: d.account==='IBKR' ? 'var(--ibkr)' : 'var(--degiro)',
+      color: brokerStyle(d.broker_id || d.account).color,
       valueLabel: (d.approx?'~':'') + eurShort(d.gross_eur),
-      tooltip: `${d.account} · bruto ${d.approx?'≈ ':''}${eur(d.gross_eur)} · neto ${d.approx?'≈ ':''}${eur(d.gross_eur+d.tax_eur)}`
+      tooltip: `${esc(d.account)} · bruto ${d.approx?'≈ ':''}${eur(d.gross_eur)} · neto ${d.approx?'≈ ':''}${eur(d.gross_eur+d.tax_eur)}`
     }));
     renderHBarChart(container, top, {rowH:22, gap:9});
   })();
@@ -1279,16 +1511,16 @@
   (function(){
     const container = document.getElementById('realized-chart');
     container.innerHTML = '';
-    if (!degiro_realized.length) return;
-    const sorted = degiro_realized.slice().sort((a,b)=>Math.abs(b.pl)-Math.abs(a.pl)).slice(0,14);
+    if (!ALL_REALIZED.length) return;
+    const sorted = ALL_REALIZED.slice().sort((a,b)=>Math.abs(b.pl)-Math.abs(a.pl)).slice(0,14);
     sorted.sort((a,b)=>b.pl-a.pl);
     const items = sorted.map(r=>({
       label: r.name.length>28 ? r.name.slice(0,26)+'…' : r.name,
-      fullLabel: r.name,
+      fullLabel: `${r.name} (${r.account})`,
       value: r.pl,
       color: r.pl>=0 ? 'var(--good)' : 'var(--critical)',
       valueLabel: eur(r.pl, {forceSign:true}),
-      tooltip: `Resultado realizado: ${eur(r.pl,{forceSign:true})}`
+      tooltip: `${esc(r.account)} · resultado realizado: ${eur(r.pl,{forceSign:true})}`
     }));
     renderHBarChart(container, items, {rowH:22, gap:9, diverging:true});
   })();
@@ -1485,6 +1717,9 @@
     degiro_open_positions.forEach(p=>{
       if (p.isin && p.live_price_eur > 0) livePriceEurByIsin.set(p.isin, p.live_price_eur);
     });
+    EXTRA_POSITIONS_ALL.forEach(p=>{
+      if (p.isin && p.live_price_eur > 0 && !livePriceEurByIsin.has(p.isin)) livePriceEurByIsin.set(p.isin, p.live_price_eur);
+    });
     ibkr.positions.forEach(p=>{
       if (!p.isin || livePriceEurByIsin.has(p.isin)) return;
       if (p.value_eur > 0 && p.qty > 0) livePriceEurByIsin.set(p.isin, p.value_eur / p.qty);
@@ -1599,7 +1834,7 @@
               }
               return `<tr>
                 <td class="num" style="text-align:left;">${isoLabel(s.date)}</td>
-                <td><span class="chip ${s.account === 'IBKR' ? 'chip-ibkr' : 'chip-degiro'}">${esc(s.account)}</span></td>
+                <td><span class="chip ${brokerStyle(s.account).chip}">${esc(s.account)}</span></td>
                 <td><div class="row-name">${esc(s.name)}</div><div class="row-sub mono">${esc(s.isin)}</div></td>
                 <td class="num">${num(s.qty, s.qty % 1 ? 4 : 0)}</td>
                 <td class="num">${s.approx ? '≈ ' : ''}${eur(s.txEur)}</td>
@@ -1646,7 +1881,7 @@
           <table>
             <thead><tr><th>Cuenta</th><th>Valor</th><th class="num">Dividendo bruto</th><th class="num">Retención origen</th></tr></thead>
             <tbody>${y.dividends.map(d=>`<tr>
-              <td><span class="chip ${d.account === 'IBKR' ? 'chip-ibkr' : 'chip-degiro'}">${esc(d.account)}</span></td>
+              <td><span class="chip ${brokerStyle(d.account).chip}">${esc(d.account)}</span></td>
               <td class="row-name">${esc(d.name)}</td>
               <td class="num">${d.approx ? '≈ ' : ''}${eur(d.gross_eur)}</td>
               <td class="num neg-val">${eur(d.tax_eur)}</td>
@@ -1793,14 +2028,34 @@
     const nTrades = behavior.quarterly.reduce((a,q)=>a+q.n_trades, 0);
     const lastClose = behavior.episodes.map(e=>e.close).sort().pop();
     if (monthly.length) $('note-contrib').textContent = `${isoMonthLabel(monthly[0].month)} – ${isoMonthLabel(monthly[monthly.length - 1].month)} · suma de depósitos menos retiradas, mes a mes`;
-    $('note-holdings').textContent = BOTH ? `${combined.open_positions_count} posiciones · ${ibkr.positions.length} en Interactive Brokers, ${degiro_open_positions.length} en DEGIRO` : `${combined.open_positions_count} posiciones`;
-    if (!BOTH && !NONE) $('subtitle-brokers').innerHTML = `Vista de tu cuenta de <b>${HAS.degiro ? 'DEGIRO' : 'Interactive Brokers'}</b>`;
-    $('note-realized').textContent = `${degiro_realized.length} valores con resultado realizado, de ${isoMonthLabel(combined.degiro_date_min)} a ${lastClose ? isoMonthLabel(lastClose) : '—'}`;
-    $('note-behavior').textContent = `Solo DEGIRO · ${nTrades} operaciones, ${behavior.episodes.length} posiciones cerradas, ${isoMonthLabel(combined.degiro_date_min)} – ${isoMonthLabel(combined.degiro_date_max)}`;
+    const posParts = [];
+    if (HAS.ibkr && ibkr.positions.length) posParts.push(`${ibkr.positions.length} en Interactive Brokers`);
+    if (HAS.degiro && degiro_open_positions.length) posParts.push(`${degiro_open_positions.length} en DEGIRO`);
+    EXTRA_BROKERS.forEach(b=>{ if (b.positions_count) posParts.push(`${b.positions_count} en ${b.name}`); });
+    $('note-holdings').textContent = posParts.length > 1 ? `${combined.open_positions_count} posiciones · ${posParts.join(', ')}` : `${combined.open_positions_count} posiciones`;
+
+    const activeLabels = [];
+    if (HAS.ibkr) activeLabels.push('Interactive Brokers');
+    if (HAS.degiro) activeLabels.push('DEGIRO');
+    EXTRA_BROKERS.forEach(b=>activeLabels.push(b.name));
+    if (activeLabels.length === 1){
+      $('subtitle-brokers').innerHTML = `Vista de tu cuenta de <b>${esc(activeLabels[0])}</b>`;
+    } else if (activeLabels.length > 1){
+      const bolds = activeLabels.map(x=>`<b>${esc(x)}</b>`);
+      const joined = bolds.length > 2 ? bolds.slice(0, -1).join(', ') + ' y ' + bolds[bolds.length - 1] : bolds.join(' y ');
+      $('subtitle-brokers').innerHTML = `Vista consolidada de tus cuentas de inversión — ${joined} —`;
+    }
+
+    const multiRealized = EXTRA_BROKERS.some(b=>(b.realized || []).length > 0);
+    $('note-realized').textContent = multiRealized
+      ? `${ALL_REALIZED.length} valores con resultado realizado entre tus cuentas`
+      : `${degiro_realized.length} valores con resultado realizado, de ${combined.degiro_date_min ? isoMonthLabel(combined.degiro_date_min) : '—'} a ${lastClose ? isoMonthLabel(lastClose) : '—'}`;
+    if (behavior.quarterly.length) $('note-behavior').textContent = `Solo DEGIRO · ${nTrades} operaciones, ${behavior.episodes.length} posiciones cerradas, ${isoMonthLabel(combined.degiro_date_min)} – ${isoMonthLabel(combined.degiro_date_max)}`;
     $('sources-text').innerHTML =
       (HAS.ibkr ? `<b>Interactive Brokers</b> — ${(ibkr.statements || []).length > 1 ? `${ibkr.statements.length} informes de actividad` : 'informe de actividad'} de la cuenta ${esc(ibkr.account)}, del ${isoLabel(ibkr.period_start)} al ${isoLabel(ibkr.period_end)}${ibkr.statement_generated ? `, generado el ${isoLabel(ibkr.statement_generated)}` : ''}.<br>` : '') +
-      (HAS.degiro ? `<b>DEGIRO</b> — estado de cuenta, del ${isoLabel(combined.degiro_date_min)} al ${isoLabel(combined.degiro_date_max)}${combined.degiro_movements_count ? ` (${num(combined.degiro_movements_count,0)} movimientos)` : ''}.` : '') +
-      (SOURCES.degiro || SOURCES.ibkr ? `<br>Los extractos importados se guardan, ya sin repetidos, en <span class="mono">data/</span>; todas las cifras se recalculan desde ellos.` : '');
+      (HAS.degiro ? `<b>DEGIRO</b> — estado de cuenta, del ${isoLabel(combined.degiro_date_min)} al ${isoLabel(combined.degiro_date_max)}${combined.degiro_movements_count ? ` (${num(combined.degiro_movements_count,0)} movimientos)` : ''}.<br>` : '') +
+      EXTRA_BROKERS.map(b=>`<b>${esc(b.name)}</b> — extracto CSV, del ${isoLabel(b.date_min)} al ${isoLabel(b.date_max)} (${num(b.movements_count,0)} movimientos).<br>`).join('') +
+      (SOURCES.degiro || SOURCES.ibkr || SOURCES.extra ? `Los extractos importados se guardan, ya sin repetidos, en <span class="mono">data/</span>; todas las cifras se recalculan desde ellos.` : '');
   })();
 
   /* ================= ESTADO DE LA APLICACIÓN ================= */
@@ -1810,7 +2065,8 @@
     parts.push(`Datos en <span class="mono">${esc(STATUS.dataFile)}</span>`);
     if (HAS.degiro) parts.push(`DEGIRO hasta el ${isoLabel(combined.degiro_date_max)}`);
     if (HAS.ibkr) parts.push(`IBKR hasta el ${isoLabel(ibkr.period_end)}`);
-    if (HAS.degiro && DATA.live_meta.fetched_date) parts.push(`precios del ${esc(DATA.live_meta.fetched_date)}`);
+    EXTRA_BROKERS.forEach(b=>parts.push(`${esc(b.name)} hasta el ${isoLabel(b.date_max)}`));
+    if (HAS_MARKET_PRICED && DATA.live_meta.fetched_date) parts.push(`precios del ${esc(DATA.live_meta.fetched_date)}`);
     if (git.repo){
       parts.push(git.hash
         ? `git <span class="mono">${esc(git.hash)}</span>${git.pending ? ' · cambios sin confirmar' : ''}${git.hasRemote ? '' : ' · sin remoto'}`
@@ -1820,12 +2076,12 @@
     }
     parts.push(STATUS.hasApiKey ? 'Alpha Vantage: clave configurada' : 'Alpha Vantage: sin clave — precios a mano');
     $('app-status').innerHTML = parts.join(' <span class="sep">·</span> ');
-    // Posiciones de DEGIRO que todavía no tienen precio de mercado (instalación nueva o valor recién comprado).
-    const provisional = degiro_open_positions.filter(p=>/^Precio de la última operación/.test(p.live_src || ''));
+    // Posiciones valoradas aún al precio de su última operación (DEGIRO o brókers adicionales).
+    const provisional = degiro_open_positions.concat(EXTRA_POSITIONS_ALL).filter(p=>/^Precio de la última operación/.test(p.live_src || ''));
     if (provisional.length){
       const n = $('price-notice');
       n.hidden = false;
-      n.innerHTML = `<b>${provisional.length === 1 ? 'Una posición de DEGIRO está valorada' : provisional.length + ' posiciones de DEGIRO están valoradas'} al precio de su última compra o venta</b>, no al de hoy (el extracto no trae cotizaciones): el valor y la rentabilidad no son reales hasta que pulses «Actualizar precios».`;
+      n.innerHTML = `<b>${provisional.length === 1 ? 'Una posición está valorada' : provisional.length + ' posiciones están valoradas'} al precio de su última compra o venta</b>, no al de hoy (los CSV de movimientos no traen cotizaciones en vivo): el valor y la rentabilidad no son reales hasta que pulses «Actualizar precios».`;
     }
 
     const pill = $('checks-pill');
@@ -1973,20 +2229,27 @@
     const statusEl = $('modal-status');
     const fxWrap = $('fx-inputs');
     const degWrap = $('degiro-price-inputs');
+    const degSec = $('degiro-price-section');
+    const extraPriceWrap = $('extra-price-sections');
+
+    // Lista unificada de posiciones que requieren precio de mercado (DEGIRO + brókers adicionales)
+    const MARKET_POS = degiro_open_positions.map((p)=>({ broker:'degiro', brokerName:'DEGIRO', p }))
+      .concat(EXTRA_BROKERS.flatMap(b=>(b.positions || []).map(p=>({ broker:b.id, brokerName:b.name, p }))));
+    if (EXTRA_POSITIONS_ALL.length && $('price-modal-title')){
+      $('price-modal-title').textContent = 'Actualizar precios de mercado';
+    }
 
     const AV_MAP = CONFIG.symbols || {};
     const canAuto = !!STATUS.hasApiKey;
     const fxStored = DATA.live_meta.fx || {};
-    // Para las posiciones con símbolo manda la divisa en la que cotiza ESE símbolo
-    // (p. ej. un valor europeo consultado a través de su cotización en el Nasdaq en USD).
     function rowCur(p){ const av = canAuto && AV_MAP[p.isin]; return av ? av.cur : (p.live_price_cur || p.last_price_cur); }
-    const FX_CURRENCIES = Array.from(new Set(Object.keys(fxStored).concat(degiro_open_positions.map(rowCur))))
+    const FX_CURRENCIES = Array.from(new Set(Object.keys(fxStored).concat(MARKET_POS.map(it=>rowCur(it.p)))))
       .filter(c=>c !== 'EUR').sort();
     const AUTO_FX = canAuto ? FX_CURRENCIES.filter(c=>(CONFIG.autoFx || []).includes(c)) : [];
 
-    const manualNames = degiro_open_positions.filter(p=>!AV_MAP[p.isin]).map(p=>p.name);
+    const manualNames = MARKET_POS.filter(it=>!AV_MAP[it.p.isin]).map(it=>it.p.name);
     $('price-modal-intro').innerHTML = canAuto
-      ? `El extracto de DEGIRO no trae cotizaciones, así que al abrir esta ventana la aplicación las busca en Alpha Vantage con tu clave (marcadas <span class="auto-badge">auto</span>). Algunas usan una cotización equivalente en otra bolsa donde cotiza el mismo valor.${manualNames.length ? ` Sin símbolo configurado y, por tanto, a mano: <b>${manualNames.map(esc).join(', ')}</b>.` : ''} El plan gratuito permite unas 25 consultas al día: si ves un ✗ por límite alcanzado, puedes completar a mano o reintentar más tarde (las respuestas ya obtenidas no vuelven a gastar cupo durante unos minutos). Al guardar se recalculan el valor, las plusvalías, los totales y la TIR. No afecta a Interactive Brokers.`
+      ? `Los extractos de movimientos no traen cotizaciones en vivo, así que al abrir esta ventana la aplicación las busca en Alpha Vantage con tu clave (marcadas <span class="auto-badge">auto</span>).${manualNames.length ? ` Sin símbolo configurado y, por tanto, a mano: <b>${manualNames.slice(0, 8).map(esc).join(', ')}${manualNames.length > 8 ? '…' : ''}</b>.` : ''} Al guardar se recalculan el valor, las plusvalías, los totales y la TIR. No afecta a Interactive Brokers.`
       : `No hay clave de Alpha Vantage configurada, así que los precios se introducen a mano: escribe la última cotización de cada valor en la divisa indicada y revisa los tipos de cambio. Al guardar se recalculan el valor, las plusvalías, los totales y la TIR. No afecta a Interactive Brokers.
          <span class="key-box"><b>¿Quieres que los busque sola?</b> Pide una clave gratuita en alphavantage.co/support/#api-key y pégala aquí. Se guarda solo en este ordenador (archivo <span class="mono">.env</span>, que no se sube a GitHub).
          <span class="key-row"><input type="password" id="av-key-input" placeholder="Clave de Alpha Vantage" autocomplete="off" spellcheck="false" aria-label="Clave de Alpha Vantage"><button type="button" class="btn-secondary" id="av-key-save">Guardar clave</button></span><span id="av-key-status" class="key-status"></span></span>`;
@@ -2031,13 +2294,11 @@
         fxWrap.appendChild(row);
       });
 
-      degWrap.innerHTML = '';
-      degiro_open_positions.forEach((p,i)=>{
+      function renderPosRow(target, it, idx){
+        const p = it.p;
         const avInfo = canAuto ? AV_MAP[p.isin] : null;
         const knownCur = p.live_price_cur || p.last_price_cur;
         const cur = rowCur(p);
-        // Solo se rellena con el último precio conocido si está en la MISMA divisa
-        // que va a tener la casilla; si no, se deja vacía para que un fallo se vea.
         const price = (p.live_price != null ? p.live_price : p.last_price);
         const prefill = cur === knownCur ? price : null;
         const row = document.createElement('div');
@@ -2048,18 +2309,39 @@
         const inp = document.createElement('input');
         inp.type = 'number'; inp.step = '0.0001'; inp.min = '0';
         inp.setAttribute('aria-label', `Precio de ${p.name} en ${cur}`);
-        inp.dataset.degIdx = i;
+        inp.dataset.posIdx = idx;
         inp.dataset.cur = cur;
         inp.value = prefill != null ? prefill : '';
         if (avInfo) inp.disabled = true;
         inputsWrap.appendChild(inp);
         if (avInfo){
           const st = document.createElement('span');
-          st.className = 'fetch-status'; st.dataset.degStatus = i;
+          st.className = 'fetch-status'; st.dataset.posStatus = idx;
           inputsWrap.appendChild(st);
         }
         row.appendChild(inputsWrap);
-        degWrap.appendChild(row);
+        target.appendChild(row);
+      }
+
+      degWrap.innerHTML = '';
+      if (degSec) degSec.hidden = !degiro_open_positions.length;
+      if (extraPriceWrap) extraPriceWrap.innerHTML = '';
+      const extraContainers = new Map();
+      MARKET_POS.forEach((it, idx)=>{
+        if (it.broker === 'degiro'){
+          renderPosRow(degWrap, it, idx);
+        } else if (extraPriceWrap){
+          let grid = extraContainers.get(it.broker);
+          if (!grid){
+            const sec = el('div', 'modal-section');
+            sec.innerHTML = `<h4>Posiciones ${esc(it.brokerName)}</h4>`;
+            grid = el('div', 'price-input-grid');
+            sec.appendChild(grid);
+            extraPriceWrap.appendChild(sec);
+            extraContainers.set(it.broker, grid);
+          }
+          renderPosRow(grid, it, idx);
+        }
       });
     }
 
@@ -2081,7 +2363,7 @@
 
     function enableManual(inp){ if (inp && inp.dataset.benchIdx == null) inp.disabled = false; }
     function enableAllManual(){
-      degWrap.querySelectorAll('input').forEach(enableManual);
+      overlay.querySelectorAll('input[data-pos-idx]').forEach(enableManual);
       fxWrap.querySelectorAll('input').forEach(enableManual);
     }
 
@@ -2105,12 +2387,12 @@
           onSuccess: () => autoFetchedFx.add(cur),
         });
       });
-      degiro_open_positions.forEach((p,i)=>{
-        const avInfo = AV_MAP[p.isin];
+      MARKET_POS.forEach((it,i)=>{
+        const avInfo = AV_MAP[it.p.isin];
         if (!avInfo) return;
         q.push({
-          statusEl: () => degWrap.querySelector(`[data-deg-status="${i}"]`),
-          inputEl: () => degWrap.querySelector(`input[data-deg-idx="${i}"]`),
+          statusEl: () => overlay.querySelector(`[data-pos-status="${i}"]`),
+          inputEl: () => overlay.querySelector(`input[data-pos-idx="${i}"]`),
           run: async () => { const r = await api('GET', '/api/quote?symbol=' + encodeURIComponent(avInfo.symbol)); return { value:r.price, cached:!!r.cached }; },
           onSuccess: () => autoFetchedIdx.add(i),
         });
@@ -2214,14 +2496,15 @@
         else { fx[inp.dataset.fx] = v; fxAuto[inp.dataset.fx] = autoFetchedFx.has(inp.dataset.fx); inp.style.borderColor = ''; }
       });
       const prices = [];
-      degWrap.querySelectorAll('input').forEach(inp=>{
+      overlay.querySelectorAll('input[data-pos-idx]').forEach(inp=>{
         const v = parseNum(inp.value);
         if (!isFinite(v) || v <= 0){ hasError = true; inp.style.borderColor = 'var(--critical)'; return; }
         inp.style.borderColor = '';
-        const idx = parseInt(inp.dataset.degIdx, 10);
-        const p = degiro_open_positions[idx];
+        const idx = parseInt(inp.dataset.posIdx, 10);
+        const it = MARKET_POS[idx];
+        const p = it.p;
         const auto = autoFetchedIdx.has(idx);
-        prices.push({ id:p.id, isin:p.isin, price:v, cur:inp.dataset.cur, auto, symbol: auto ? (AV_MAP[p.isin] || {}).symbol : undefined });
+        prices.push({ broker:it.broker, id:p.id, isin:p.isin, price:v, cur:inp.dataset.cur, auto, symbol: auto ? (AV_MAP[p.isin] || {}).symbol : undefined });
       });
       if (hasError){
         statusEl.textContent = 'Revisa las casillas en rojo: deben ser números mayores que 0.';
@@ -2516,7 +2799,7 @@
     bindModal(overlay, closeModal);
   })();
 
-  /* ================= IMPORTAR EXTRACTOS (DEGIRO e Interactive Brokers, en CSV) ================= */
+  /* ================= IMPORTAR EXTRACTOS (MULTIBRÓKER + SMART MAPPING) ================= */
   (function(){
     const overlay = $('import-modal-overlay');
     const input = $('import-files');
@@ -2524,8 +2807,23 @@
     const previewEl = $('import-preview');
     const statusEl = $('import-status');
     const saveBtn = $('import-save');
-    let files = [];   // [{ name, content }]
+    let files = [];     // [{ name, content }]
+    let mappings = {};  // { [fileIndex]: { brokerName, columns: { date, type, ... } } }
     let busy = false;
+
+    const MAP_FIELDS = [
+      ['date', 'Fecha *'],
+      ['type', 'Tipo / Acción *'],
+      ['isin', 'ISIN'],
+      ['ticker', 'Ticker / Símbolo'],
+      ['name', 'Nombre / Descripción'],
+      ['qty', 'Cantidad / Títulos'],
+      ['price', 'Precio'],
+      ['total_eur', 'Importe total (EUR)'],
+      ['cur', 'Divisa'],
+      ['fee', 'Comisión'],
+      ['tax', 'Retención / Impuesto'],
+    ];
 
     function fmtRange(a, b){ return a === b ? isoLabel(a) : `${isoLabel(a)} – ${isoLabel(b)}`; }
     function delta(f){
@@ -2534,12 +2832,60 @@
       return `<span class="${sg(d)}">${eur(d, {forceSign:true})}</span>`;
     }
 
+    function renderSmartMapping(p){
+      let h = `<div class="notice warn"><b>Formato personalizado detectado (Smart Mapping):</b> confirma qué columna corresponde a cada campo y pulsa «Aplicar mapeo y previsualizar».</div>`;
+      (p.unmappedFiles || []).forEach(uf=>{
+        const idx = uf.fileIndex;
+        const curMap = mappings[idx] || {};
+        const cols = curMap.columns || uf.suggestedMapping || {};
+        const brokerVal = curMap.brokerName || uf.suggestedBrokerName || 'Otro bróker';
+        const colOpts = (selected) => `<option value="">— No usar —</option>` +
+          (uf.headers || []).map((hdr, ci)=>`<option value="${ci}"${selected != null && String(selected) === String(ci) ? ' selected' : ''}>${esc(hdr || ('Columna ' + (ci + 1)))}</option>`).join('');
+        const sampleHead = (uf.headers || []).map(hdr=>`<th>${esc(hdr)}</th>`).join('');
+        const sampleBody = (uf.sampleRows || []).map(row=>`<tr>${row.map(cell=>`<td>${esc(String(cell || '').slice(0, 36))}</td>`).join('')}</tr>`).join('');
+
+        h += `<div class="smart-map-card" data-map-idx="${idx}">
+          <div class="smart-map-head">
+            <span class="smart-map-title">${esc(uf.name)} <span class="row-sub">(${num(uf.rowCount || 0, 0)} filas · separador «${esc(uf.delimiter === '\t' ? 'TAB' : uf.delimiter)}»)</span></span>
+          </div>
+          <div class="smart-map-grid">
+            <div class="field"><label for="sm-broker-${idx}">Nombre del bróker *</label><input type="text" id="sm-broker-${idx}" data-sm-broker="${idx}" value="${esc(brokerVal)}" maxlength="48"></div>
+            ${MAP_FIELDS.map(([fk, flabel])=>`<div class="field"><label for="sm-${idx}-${fk}">${flabel}</label><select id="sm-${idx}-${fk}" data-sm-col="${fk}">${colOpts(cols[fk])}</select></div>`).join('')}
+          </div>
+          ${sampleBody ? `<div class="smart-sample"><table><thead><tr>${sampleHead}</tr></thead><tbody>${sampleBody}</tbody></table></div>` : ''}
+        </div>`;
+      });
+      h += `<div class="smart-map-actions">
+        <span class="row-sub">Los campos con * son obligatorios; si falta Importe total, se calcula con Cantidad × Precio.</span>
+        <button type="button" class="btn-primary" id="apply-smart-map">Aplicar mapeo y previsualizar</button>
+      </div>`;
+      previewEl.innerHTML = h;
+      saveBtn.disabled = true;
+
+      const applyBtn = $('apply-smart-map');
+      if (applyBtn){
+        applyBtn.addEventListener('click', ()=>{
+          previewEl.querySelectorAll('.smart-map-card').forEach(card=>{
+            const idx = card.dataset.mapIdx;
+            const bInp = card.querySelector(`[data-sm-broker="${idx}"]`);
+            const columns = {};
+            card.querySelectorAll('select[data-sm-col]').forEach(sel=>{
+              if (sel.value !== '') columns[sel.dataset.smCol] = Number(sel.value);
+            });
+            mappings[idx] = { brokerName: (bInp && bInp.value.trim()) || 'Otro bróker', columns };
+          });
+          preview();
+        });
+      }
+    }
+
     function render(p){
+      if (p.needsMapping){ renderSmartMapping(p); return; }
       const fileRows = p.files.map(f=>{
-        const chip = f.broker === 'IBKR' ? 'chip-ibkr' : 'chip-degiro';
+        const st = brokerStyle(f.brokerId || f.broker);
         const nuevo = f.added ? `<b>${f.added}</b> ${f.added === 1 ? 'apunte nuevo' : 'apuntes nuevos'}` : 'nada nuevo';
         const dup = f.duplicates ? ` · ${f.duplicates} ya ${f.duplicates === 1 ? 'estaba' : 'estaban'}` : '';
-        return `<tr><td><span class="chip ${chip}">${esc(f.broker)}</span></td><td><div class="row-name">${esc(f.name)}</div><div class="row-sub">${fmtRange(f.from, f.to)}</div></td><td>${nuevo}<span class="row-sub">${dup}</span></td></tr>`;
+        return `<tr><td><span class="chip ${st.chip}">${esc(f.broker)}</span></td><td><div class="row-name">${esc(f.name)}</div><div class="row-sub">${fmtRange(f.from, f.to)}</div></td><td>${nuevo}<span class="row-sub">${dup}</span></td></tr>`;
       }).join('');
       let h = `<div class="table-scroll"><table class="import-table"><thead><tr><th>Bróker</th><th>Archivo</th><th>Contenido</th></tr></thead><tbody>${fileRows}</tbody></table></div>`;
 
@@ -2558,10 +2904,14 @@
         const cover = [];
         if (p.degiro) cover.push(`DEGIRO del ${isoLabel(p.degiro.from)} al ${isoLabel(p.degiro.to)} (${num(p.degiro.rows,0)} movimientos)`);
         if (p.ibkr) cover.push(`IBKR del ${isoLabel(p.ibkr.from)} al ${isoLabel(p.ibkr.to)} (${p.ibkr.statements} ${p.ibkr.statements === 1 ? 'informe' : 'informes'})`);
+        if (p.extra){
+          Object.values(p.extra).forEach(ex=>cover.push(`${ex.name} del ${isoLabel(ex.date_min)} al ${isoLabel(ex.date_max)} (${num(ex.rows,0)} apuntes)`));
+        }
+        const posStat = p.totalPositions || p.positions;
         h += `<h4 class="import-h">Cómo quedan las cifras</h4><div class="table-scroll"><table class="import-table"><thead><tr><th></th><th class="num">Ahora</th><th class="num">Tras importar</th><th class="num">Cambio</th></tr></thead><tbody>` +
-          p.figures.map(f=>`<tr><td>${esc(f.label)}</td><td class="num">${eur(f.before)}</td><td class="num">${eur(f.after)}</td><td class="num">${delta(f)}</td></tr>`).join('') +
-          `<tr><td>Posiciones abiertas en DEGIRO</td><td class="num">${p.positions.before}</td><td class="num">${p.positions.after}</td><td class="num">${p.positions.after === p.positions.before ? '<span class="row-sub">sin cambios</span>' : (p.positions.after > p.positions.before ? '+' : '') + (p.positions.after - p.positions.before)}</td></tr>` +
-          `</tbody></table></div><p class="footnote">Quedará cubierto: ${cover.join(' · ')}. Los precios de mercado de DEGIRO no vienen en ningún extracto: se mantienen los que hay guardados (${esc(DATA.live_meta.fetched_date)}); actualízalos después si quieres el valor al día.</p>`;
+          p.figures.filter(f=>Math.abs(f.before) > 0.005 || Math.abs(f.after) > 0.005 || f.id === 'portfolio_value_total' || f.id === 'total_contributions').map(f=>`<tr><td>${esc(f.label)}</td><td class="num">${eur(f.before)}</td><td class="num">${eur(f.after)}</td><td class="num">${delta(f)}</td></tr>`).join('') +
+          `<tr><td>Posiciones abiertas totales</td><td class="num">${posStat.before}</td><td class="num">${posStat.after}</td><td class="num">${posStat.after === posStat.before ? '<span class="row-sub">sin cambios</span>' : (posStat.after > posStat.before ? '+' : '') + (posStat.after - posStat.before)}</td></tr>` +
+          `</tbody></table></div><p class="footnote">Quedará cubierto: ${esc(cover.join(' · '))}. Los precios de mercado de los extractos de movimientos no vienen en vivo: se conservan los guardados (${esc(DATA.live_meta.fetched_date || 'última operación')}); actualízalos después si quieres el valor al día.</p>`;
       }
       previewEl.innerHTML = h;
       saveBtn.disabled = !!(p.blocking.length || p.nothingNew);
@@ -2570,10 +2920,10 @@
     async function preview(){
       if (!files.length || busy) return;
       busy = true; saveBtn.disabled = true;
-      statusEl.style.color = ''; statusEl.textContent = 'Leyendo los extractos…';
+      statusEl.style.color = ''; statusEl.textContent = 'Analizando los archivos CSV…';
       previewEl.innerHTML = '';
       try {
-        const p = await api('POST', '/api/import/preview', { files });
+        const p = await api('POST', '/api/import/preview', { files, mappings });
         render(p);
         statusEl.textContent = '';
       } catch (err){
@@ -2588,8 +2938,9 @@
       const tooBig = picked.find(f=>f.size > 8 * 1024 * 1024);
       if (tooBig){ statusEl.textContent = `${tooBig.name} es demasiado grande para ser un extracto.`; statusEl.style.color = 'var(--critical)'; return; }
       files = await Promise.all(picked.map(async f=>({ name: f.name, content: await f.text() })));
+      mappings = {};
       drop.querySelector('.drop-title').textContent = files.length === 1 ? files[0].name : `${files.length} archivos elegidos`;
-      drop.querySelector('.drop-sub').textContent = 'pulsa para elegir otros';
+      drop.querySelector('.drop-sub').textContent = 'haz clic o arrastra otros archivos para sustituirlos';
       preview();
     }
 
@@ -2603,7 +2954,7 @@
       busy = true; saveBtn.disabled = true;
       statusEl.style.color = ''; statusEl.textContent = 'Importando…';
       try {
-        const r = await api('POST', '/api/import', { files });
+        const r = await api('POST', '/api/import', { files, mappings });
         reloadWithToast(r.saved);
       } catch (err){
         statusEl.textContent = err.message; statusEl.style.color = 'var(--critical)';
@@ -2612,9 +2963,10 @@
     });
 
     function openModal(){
-      files = []; input.value = ''; previewEl.innerHTML = ''; statusEl.textContent = ''; saveBtn.disabled = true;
-      drop.querySelector('.drop-title').textContent = 'Elegir archivos CSV…';
-      drop.querySelector('.drop-sub').textContent = 'o arrástralos aquí';
+      files = []; mappings = {}; input.value = ''; previewEl.innerHTML = ''; statusEl.textContent = ''; saveBtn.disabled = true;
+      const guide = overlay.querySelector('.import-guide'); if (guide) guide.open = false;
+      drop.querySelector('.drop-title').textContent = 'Arrastra aquí cualquier CSV de tus brókers';
+      drop.querySelector('.drop-sub').textContent = 'o haz clic para elegir uno o varios archivos · los apuntes repetidos se detectan y no se duplican';
       overlay.style.display = 'flex';
     }
     function closeModal(){ overlay.style.display = 'none'; }

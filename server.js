@@ -22,6 +22,7 @@ const { createStore } = require('./lib/store');
 const { createClient, QuoteError } = require('./lib/alphavantage');
 const degiro = require('./lib/degiro');
 const ibkr = require('./lib/ibkr');
+const brokers = require('./lib/brokers');
 const { rebuild } = require('./lib/rebuild');
 const report = require('./lib/report');
 const benchmark = require('./lib/benchmark');
@@ -105,7 +106,11 @@ function createApp(root, options) {
     try { bench = benchmark.compare(data, indices, cfg.benchmarks); } catch (e) { bench = { error: 'No se ha podido calcular la comparación con los índices: ' + e.message }; }
     let tax = null;
     try {
-      tax = irpf.computeIrpf(data, { degiroRows: store.loadDegiroLedger(), ibkrLedger: store.loadIbkrLedger() }, { today: todayIso() });
+      tax = irpf.computeIrpf(data, {
+        degiroRows: store.loadDegiroLedger(),
+        ibkrLedger: store.loadIbkrLedger(),
+        extraLedgers: store.loadExtraLedgers(),
+      }, { today: todayIso() });
     } catch (e) { tax = { error: 'No se ha podido calcular la simulación fiscal: ' + e.message }; }
     return Object.assign({
       data,
@@ -150,16 +155,21 @@ function createApp(root, options) {
    * Calcula qué pasaría al importar estos archivos, sin guardar nada.
    * Devuelve { preview, data, ledgers, summary }.
    */
-  function computeImport(files) {
+  function computeImport(files, mappings) {
     if (!Array.isArray(files) || !files.length) throw new UserError('No se ha recibido ningún archivo.');
     if (files.length > 12) throw new UserError('Demasiados archivos a la vez (máximo 12).');
+    mappings = (mappings && typeof mappings === 'object') ? mappings : {};
     const current = store.load();
     let degiroRows = store.loadDegiroLedger();
     let ibkrLedger = store.loadIbkrLedger();
-    let touchedDegiro = false, touchedIbkr = false, degiroFileMax = null;
+    let extraLedgers = store.loadExtraLedgers();
+    let touchedDegiro = false, touchedIbkr = false, touchedExtra = false, degiroFileMax = null;
+    const touchedExtraIds = new Set();
     const reports = [];
+    const parseWarnings = [];
+    const unmappedFiles = [];
 
-    files.forEach((f) => {
+    files.forEach((f, idx) => {
       const name = String((f && f.name) || 'archivo').slice(0, 120);
       const text = String((f && f.content) || '');
       try {
@@ -169,20 +179,55 @@ function createApp(root, options) {
           degiroRows = m.rows; touchedDegiro = true;
           const dates = rows.map((r) => degiro.dmyToIso(r[0])).sort();
           if (!degiroFileMax || dates[dates.length - 1] > degiroFileMax) degiroFileMax = dates[dates.length - 1];
-          reports.push({ name, broker: 'DEGIRO', from: dates[0], to: dates[dates.length - 1], total: rows.length, added: m.added, duplicates: m.duplicates });
+          reports.push({ name, broker: 'DEGIRO', brokerId: 'degiro', from: dates[0], to: dates[dates.length - 1], total: rows.length, added: m.added, duplicates: m.duplicates });
         } else if (ibkr.looksLikeIbkr(text)) {
           const parsed = ibkr.parseIbkrCsv(text, name);
           const m = ibkr.mergeIbkr(ibkrLedger, parsed);
           ibkrLedger = m.ledger; touchedIbkr = true;
-          reports.push({ name, broker: 'IBKR', from: parsed.statement.start, to: parsed.statement.end, total: m.added + m.duplicates, added: m.added, duplicates: m.duplicates, replaced: m.replaced, changed: m.changed });
+          reports.push({ name, broker: 'IBKR', brokerId: 'ibkr', from: parsed.statement.start, to: parsed.statement.end, total: m.added + m.duplicates, added: m.added, duplicates: m.duplicates, replaced: m.replaced, changed: m.changed });
         } else {
-          throw new UserError('no se reconoce como extracto de DEGIRO («Estado de cuenta» en CSV) ni de Interactive Brokers («Informe de actividad» en CSV).');
+          const userMap = mappings[idx] || mappings[name] || null;
+          const parsed = brokers.parseBrokerCsv(text, name, userMap);
+          if (parsed.needsMapping) {
+            unmappedFiles.push(Object.assign({ fileIndex: idx }, parsed));
+            return;
+          }
+          const m = brokers.mergeBrokerLedger(extraLedgers, parsed.brokerId, parsed.brokerName, parsed.preset, parsed.events);
+          extraLedgers = m.ledgers; touchedExtra = true;
+          touchedExtraIds.add(parsed.brokerId);
+          parseWarnings.push(...(parsed.warnings || []));
+          const dates = parsed.events.map((e) => e.date).sort();
+          reports.push({
+            name, broker: parsed.brokerName, brokerId: parsed.brokerId,
+            from: dates[0], to: dates[dates.length - 1],
+            total: parsed.events.length, added: m.added, duplicates: m.duplicates,
+          });
         }
       } catch (e) {
         if (e instanceof UserError) throw new UserError(`${name}: ${e.message}`);
         throw e;
       }
     });
+
+    if (unmappedFiles.length) {
+      return {
+        data: current, added: 0,
+        ledgers: { degiroRows: null, ibkrLedger: null, extraLedgers: null },
+        summary: '',
+        preview: {
+          needsMapping: true,
+          unmappedFiles,
+          files: reports,
+          blocking: [],
+          warnings: parseWarnings,
+          superseded: [],
+          figures: [],
+          added: 0,
+          positions: { before: current.combined.open_positions_count, after: current.combined.open_positions_count },
+          nothingNew: false,
+        },
+      };
+    }
 
     // Los movimientos registrados a mano que este extracto de DEGIRO ya cubre dejan de contarse aparte.
     const working = JSON.parse(JSON.stringify(current));
@@ -195,8 +240,9 @@ function createApp(root, options) {
       });
     }
     const hadLedger = store.loadDegiroLedger().length > 0;
-    const built = rebuild(working, { degiroRows, ibkrLedger }, hadLedger || touchedDegiro ? applyMovement : null);
+    const built = rebuild(working, { degiroRows, ibkrLedger, extraLedgers }, hadLedger || touchedDegiro ? applyMovement : null);
     const data = built.data;
+    const allWarnings = parseWarnings.concat(built.warnings || []);
 
     const blocking = [];
     const src = data.sources || {};
@@ -213,18 +259,30 @@ function createApp(root, options) {
     const failed = checks.filter((k) => !k.ok && k.level === 'error').map((k) => k.label);
     if (!blocking.length && failed.length) blocking.push('Con estos extractos los datos no cuadran: ' + failed.join('; ') + '.');
 
-    const figures = KEY_FIGURES.map(([id, label, get]) => ({ id, label, before: get(current), after: get(data) }));
+    const extraFigures = Array.from(touchedExtraIds).map((bid) => {
+      const bAfter = (data.extra_brokers && data.extra_brokers[bid]) || {};
+      const bBefore = (current.extra_brokers && current.extra_brokers[bid]) || {};
+      return { id: `extra_${bid}`, label: `${bAfter.name || bid} · valor de la cuenta`, before: bBefore.nav_total || 0, after: bAfter.nav_total || 0 };
+    });
+    const figures = KEY_FIGURES.map(([id, label, get]) => ({ id, label, before: get(current), after: get(data) })).concat(extraFigures);
     const added = reports.reduce((a, r) => a + r.added, 0);
     const summary = reports.map((r) => `${r.name} (${r.broker}, ${r.added} ${r.added === 1 ? 'apunte nuevo' : 'apuntes nuevos'}${r.duplicates ? `, ${r.duplicates} ya estaban` : ''})`).join(' · ');
     return {
       data, added,
-      ledgers: { degiroRows: touchedDegiro ? degiroRows : null, ibkrLedger: touchedIbkr ? ibkrLedger : null },
+      ledgers: {
+        degiroRows: touchedDegiro ? degiroRows : null,
+        ibkrLedger: touchedIbkr ? ibkrLedger : null,
+        extraLedgers: touchedExtra ? extraLedgers : null,
+      },
       summary: `Extractos importados: ${summary}`,
       preview: {
-        files: reports, blocking, warnings: built.warnings, superseded, figures, added,
+        needsMapping: false,
+        files: reports, blocking, warnings: allWarnings, superseded, figures, added,
         positions: { before: current.degiro_open_positions.length, after: data.degiro_open_positions.length },
+        totalPositions: { before: current.combined.open_positions_count, after: data.combined.open_positions_count },
         degiro: src.degiro ? { from: src.degiro.date_min, to: src.degiro.date_max, rows: src.degiro.rows } : null,
         ibkr: src.ibkr ? { from: src.ibkr.date_min, to: src.ibkr.date_max, statements: src.ibkr.statements } : null,
+        extra: src.extra || null,
         nothingNew: added === 0 && !reports.some((r) => r.changed),
       },
     };
@@ -270,15 +328,19 @@ function createApp(root, options) {
       const cfg = store.loadConfig();
       const rows = store.loadDegiroLedger();
       const ib = store.loadIbkrLedger();
+      const extraLedgers = store.loadExtraLedgers();
+      const extraTrades = Object.values((extraLedgers && extraLedgers.brokers) || {})
+        .flatMap((entry) => (entry && entry.events && entry.events.length ? brokers.deriveBroker(entry, data).trades : []));
       const model = report.buildReport(data, {
         anon: url.searchParams.get('anon') !== '0',
         includeTrades: url.searchParams.get('trades') !== '0',
         titular: cfg.titular, today: todayIso(),
         degiroTrades: rows.length ? degiro.deriveDegiro(rows, data).trades : [],
         ibkrTrades: (ib.events && ib.events.trades) || [],
+        extraTrades,
         checks: summarize(runChecks(data)),
         benchmark: (() => { try { return benchmark.compare(data, store.loadIndices(), cfg.benchmarks); } catch (e) { return null; } })(),
-        irpf: (() => { try { return irpf.computeIrpf(data, { degiroRows: rows, ibkrLedger: ib }, { today: todayIso() }); } catch (e) { return null; } })(),
+        irpf: (() => { try { return irpf.computeIrpf(data, { degiroRows: rows, ibkrLedger: ib, extraLedgers }, { today: todayIso() }); } catch (e) { return null; } })(),
       });
       const name = `cartera-${todayIso()}.${format}`;
       const headers = {
@@ -288,6 +350,12 @@ function createApp(root, options) {
       };
       return send(res, 200, format === 'md' ? report.toMarkdown(model) : report.toHtml(model), headers);
     }
+    if (route === 'GET /api/import/template') {
+      return send(res, 200, brokers.GENERIC_CSV_TEMPLATE, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="plantilla-openbrokercsv.csv"',
+      });
+    }
     if (route === 'GET /api/irpf/simulate') {
       const parseQ = (k, def) => {
         const raw = url.searchParams.get(k);
@@ -296,7 +364,7 @@ function createApp(root, options) {
       };
       const sim = irpf.simulateSale(
         store.load(),
-        { degiroRows: store.loadDegiroLedger(), ibkrLedger: store.loadIbkrLedger() },
+        { degiroRows: store.loadDegiroLedger(), ibkrLedger: store.loadIbkrLedger(), extraLedgers: store.loadExtraLedgers() },
         {
           isin: url.searchParams.get('isin') || '',
           qty: parseQ('qty', NaN),
@@ -389,12 +457,13 @@ function createApp(root, options) {
     }
     if (route === 'POST /api/import/preview') {
       const body = await readBody(req, 16 * 1024 * 1024);
-      return send(res, 200, await exclusive(async () => computeImport(body.files).preview));
+      return send(res, 200, await exclusive(async () => computeImport(body.files, body.mappings).preview));
     }
     if (route === 'POST /api/import') {
       const body = await readBody(req, 16 * 1024 * 1024);
       return send(res, 200, await exclusive(async () => {
-        const r = computeImport(body.files);
+        const r = computeImport(body.files, body.mappings);
+        if (r.preview.needsMapping) throw new UserError('Completa el mapeo de columnas antes de importar.');
         if (r.preview.blocking.length) throw new UserError('No se ha importado: ' + r.preview.blocking[0]);
         store.addJournal(r.data, { kind: 'importacion', summary: r.summary, files: r.preview.files });
         benchmark.recordSnapshot(r.data, todayIso());

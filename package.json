@@ -1,6 +1,6 @@
 {
   "name": "panorama-cartera",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Panel local de seguimiento de cartera (DEGIRO + Interactive Brokers). Funciona sin conexión; sin dependencias.",
   "license": "UNLICENSED",

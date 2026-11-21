@@ -35,7 +35,7 @@
       <details class="topnav-actions" id="topnav-actions">
         <summary>Acciones</summary>
         <div class="topnav-menu" role="menu">
-          <button type="button" role="menuitem" data-open="open-price-modal" data-broker="degiro">↻ Actualizar precios</button>
+          <button type="button" role="menuitem" data-open="open-price-modal" data-needs-prices>↻ Actualizar precios</button>
           <button type="button" role="menuitem" data-open="open-import-modal">⇪ Importar extractos</button>
           <button type="button" role="menuitem" data-open="open-mov-modal" data-broker="degiro">＋ Registrar movimiento</button>
           <button type="button" role="menuitem" data-open="open-export-modal">⇩ Exportar informe</button>
@@ -51,7 +51,7 @@
     <h1 class="title">Panorama de cartera</h1>
     <p class="subtitle"><span id="subtitle-brokers">Vista consolidada de tus cuentas de inversión — <b>Interactive Brokers</b> y <b>DEGIRO</b> —</span> en una aplicación local: los datos viven en tu ordenador y cada cambio queda registrado. Cifras en euros salvo que se indique lo contrario.</p>
     <div class="hero-actions">
-      <button type="button" id="open-price-modal" class="btn-update" data-broker="degiro">↻ Actualizar precios</button>
+      <button type="button" id="open-price-modal" class="btn-update" data-needs-prices>↻ Actualizar precios</button>
       <button type="button" id="open-import-modal" class="btn-update">⇪ Importar extractos</button>
       <button type="button" id="open-mov-modal" class="btn-update" data-broker="degiro">＋ Registrar movimiento</button>
       <button type="button" id="open-export-modal" class="btn-update">⇩ Exportar informe</button>
@@ -63,11 +63,15 @@
     <div id="stat-row" class="stat-row"></div>
     <div id="welcome" class="card welcome" hidden>
       <h2 class="section-title">Empieza importando tus extractos</h2>
-      <p>La aplicación funciona con una cuenta de DEGIRO, de Interactive Brokers o con las dos. Exporta los extractos en CSV, con la web del bróker en español, e impórtalos aquí: se calcula todo lo demás.</p>
-      <ul>
-        <li><b>DEGIRO</b>: Actividad → Estado de cuenta → desde la fecha en que abriste la cuenta → Exportar → CSV.</li>
-        <li><b>Interactive Brokers</b>: Rendimiento e informes → Extractos → Actividad → CSV. Como máximo un año por informe: exporta los que hagan falta desde la apertura.</li>
-      </ul>
+      <p>Funciona con uno o varios brókers a la vez — detección automática para <b>DEGIRO</b>, <b>Interactive Brokers</b>, <b>Trading 212</b>, <b>Trade Republic</b>, <b>MyInvestor</b> y <b>OpenBrokerCSV</b>, además de mapeo inteligente para cualquier otro CSV.</p>
+      <div class="broker-pills" style="justify-content:flex-start;margin:10px 0 18px;">
+        <span class="chip chip-degiro">DEGIRO</span>
+        <span class="chip chip-ibkr">Interactive Brokers</span>
+        <span class="chip chip-t212">Trading 212</span>
+        <span class="chip chip-tr">Trade Republic</span>
+        <span class="chip chip-myinv">MyInvestor</span>
+        <span class="chip chip-other">Otro CSV (Smart Mapping)</span>
+      </div>
       <button type="button" class="btn-primary" id="welcome-import">⇪ Importar extractos</button>
     </div>
   </div>
@@ -104,10 +108,10 @@
 
   <section id="accounts">
     <div class="section-head">
-      <h2 class="section-title">Las dos cuentas</h2>
+      <h2 class="section-title" id="accounts-title">Las dos cuentas</h2>
       <span class="section-note">Datos de cada bróker, en su propia moneda de referencia (EUR)</span>
     </div>
-    <div class="accounts-grid">
+    <div class="accounts-grid" id="accounts-grid">
       <div class="acct-card" id="ibkr-card" data-broker="ibkr"></div>
       <div class="acct-card" id="degiro-card" data-broker="degiro"></div>
     </div>
@@ -119,7 +123,7 @@
       <span class="section-note" id="note-contrib"></span>
     </div>
     <div class="chart-card">
-      <div class="chart-legend">
+      <div class="chart-legend" id="contrib-legend">
         <span class="legend-item" data-broker="degiro"><span class="legend-swatch" style="background:var(--degiro)"></span>DEGIRO</span>
         <span class="legend-item" data-broker="ibkr"><span class="legend-swatch" style="background:var(--ibkr)"></span>Interactive Brokers</span>
       </div>
@@ -132,9 +136,11 @@
       <h2 class="section-title">Posiciones abiertas</h2>
       <span class="section-note" id="note-holdings"></span>
     </div>
+    <div class="holdings-toolbar" id="holdings-tabs" hidden></div>
+    <div id="holdings-all" hidden></div>
 
     <div id="holdings-ibkr" data-broker="ibkr">
-    <h3 style="font-size:.95rem;margin:0 0 10px;color:var(--ink-secondary);font-weight:600;">Interactive Brokers — a precio de cierre del extracto</h3>
+    <h3 class="holdings-broker-title">Interactive Brokers — a precio de cierre del extracto</h3>
     <div class="card" style="margin-bottom:28px;">
       <div class="table-scroll">
         <table id="ibkr-positions-table"></table>
@@ -144,7 +150,7 @@
     </div>
 
     <div id="holdings-degiro" data-broker="degiro">
-    <h3 style="font-size:.95rem;margin:0 0 10px;color:var(--ink-secondary);font-weight:600;">DEGIRO — coste invertido frente a valor de hoy, por posición</h3>
+    <h3 class="holdings-broker-title">DEGIRO — coste invertido frente a valor de hoy, por posición</h3>
     <div class="chart-card" style="margin-bottom:14px;">
       <div class="chart-legend">
         <span class="legend-item"><span class="legend-swatch" style="background:var(--hairline-strong)"></span>Coste (del extracto)</span>
@@ -159,15 +165,17 @@
       <p class="footnote" id="degiro-table-note"></p>
     </div>
     </div>
+
+    <div id="holdings-extra"></div>
   </section>
 
   <section id="dividends">
     <div class="section-head">
       <h2 class="section-title">Dividendos por posición</h2>
-      <span class="section-note">Bruto en euros, ambas cuentas · histórico completo</span>
+      <span class="section-note" id="note-dividends">Bruto en euros · histórico completo</span>
     </div>
     <div class="chart-card" style="margin-bottom:14px;">
-      <div class="chart-legend">
+      <div class="chart-legend" id="dividends-legend">
         <span class="legend-item" data-broker="ibkr"><span class="legend-swatch" style="background:var(--ibkr)"></span>Interactive Brokers</span>
         <span class="legend-item" data-broker="degiro"><span class="legend-swatch" style="background:var(--degiro)"></span>DEGIRO</span>
       </div>
@@ -183,7 +191,7 @@
 
   <section id="realized">
     <div class="section-head">
-      <h2 class="section-title">Resultado realizado — posiciones cerradas (DEGIRO)</h2>
+      <h2 class="section-title" id="realized-title">Resultado realizado — posiciones cerradas (DEGIRO)</h2>
       <span class="section-note" id="note-realized"></span>
     </div>
     <div class="chart-card" style="margin-bottom:14px;">
@@ -316,10 +324,11 @@
         <h4>Tipos de cambio <span class="approx-flag">(1 EUR =)</span></h4>
         <div class="fx-grid" id="fx-inputs"></div>
       </div>
-      <div class="modal-section">
-        <h4>Posiciones DEGIRO</h4>
+      <div class="modal-section" id="degiro-price-section">
+        <h4 id="price-positions-heading">Posiciones DEGIRO</h4>
         <div id="degiro-price-inputs" class="price-input-grid"></div>
       </div>
+      <div id="extra-price-sections"></div>
       <div class="modal-section" id="bench-price-section" hidden>
         <h4>Índices de referencia <span class="approx-flag">(para la gráfica de comparación; no se guardan como precio)</span></h4>
         <div id="bench-price-inputs" class="price-input-grid"></div>
@@ -369,20 +378,40 @@
 <div class="modal-overlay" id="import-modal-overlay" style="display:none;">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
     <div class="modal-head">
-      <h3 id="import-modal-title">Importar extractos</h3>
+      <h3 id="import-modal-title">Importar extractos CSV</h3>
       <button type="button" id="import-close" class="modal-close-btn" aria-label="Cerrar">×</button>
     </div>
     <div class="modal-body">
-      <p class="footnote" style="margin-top:0;">Elige uno o varios archivos CSV. Pueden ser de los dos brókers a la vez y sus fechas pueden solaparse entre sí o con lo que ya importaste: cada apunte se reconoce y <b>no se cuenta dos veces</b>. Antes de guardar verás qué es nuevo y cómo cambian las cifras.</p>
-      <ul class="import-how">
-        <li><b>DEGIRO</b> — Actividad → Estado de cuenta → elige las fechas → Exportar → CSV.</li>
-        <li><b>Interactive Brokers</b> — Rendimiento e informes → Extractos → Actividad → formato CSV. Como máximo un año por informe: exporta los que hagan falta.</li>
-      </ul>
       <label class="drop-zone" id="import-drop" for="import-files">
         <input type="file" id="import-files" accept=".csv,text/csv" multiple>
-        <span class="drop-title">Elegir archivos CSV…</span>
-        <span class="drop-sub">o arrástralos aquí</span>
+        <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="M9.5 14.5 12 12l2.5 2.5"/></svg>
+        <span class="drop-title">Arrastra aquí cualquier CSV de tus brókers</span>
+        <span class="drop-sub">o haz clic para elegir uno o varios archivos · los apuntes repetidos se detectan y no se duplican</span>
+        <div class="broker-pills" aria-label="Formatos con detección automática">
+          <span class="chip chip-degiro">DEGIRO</span>
+          <span class="chip chip-ibkr">IBKR</span>
+          <span class="chip chip-t212">Trading 212</span>
+          <span class="chip chip-tr">Trade Republic</span>
+          <span class="chip chip-myinv">MyInvestor</span>
+          <span class="chip chip-other">OpenBrokerCSV / Smart Mapping</span>
+        </div>
       </label>
+      <details class="import-guide">
+        <summary><span>¿Cómo exportar el CSV en cada bróker? · Plantilla genérica</span></summary>
+        <div class="import-guide-body">
+          <ul class="import-guide-list">
+            <li><span class="chip chip-degiro">DEGIRO</span><span>Actividad → Estado de cuenta → desde la apertura → Exportar → CSV.</span></li>
+            <li><span class="chip chip-ibkr">IBKR</span><span>Rendimiento e informes → Extractos → Actividad → CSV (máx. 1 año por archivo).</span></li>
+            <li><span class="chip chip-t212">Trading 212</span><span>Historial → Exportar CSV (máx. 1 año por archivo; puedes subir varios años juntos).</span></li>
+            <li><span class="chip chip-tr">Trade Republic</span><span>App → Perfil → Extractos → Exportación de transacciones (CSV), o exportación <span class="mono">pytr</span>.</span></li>
+            <li><span class="chip chip-myinv">MyInvestor</span><span>Inversis → Consultas → Movimientos / Operaciones → exportar Excel y guardar como CSV.</span></li>
+          </ul>
+          <div class="import-guide-foot">
+            <span class="row-sub">¿Usas otro bróker? Arrastra su CSV para mapear sus columnas o usa la plantilla estándar.</span>
+            <a class="link-btn" href="/api/import/template" download="plantilla-openbrokercsv.csv">⇩ Descargar plantilla CSV</a>
+          </div>
+        </div>
+      </details>
       <div id="import-preview"></div>
     </div>
     <div class="modal-foot">
