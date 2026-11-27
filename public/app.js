@@ -163,7 +163,7 @@
     }
     if (NONE){
       // Instalación nueva: solo la bienvenida y el botón de importar.
-      hide($('stat-row')); hide($('open-export-modal')); hide($('checks-pill')); hide($('topnav-checks'));
+      hide($('stat-row')); hide($('returns-row')); hide($('open-export-modal')); hide($('checks-pill')); hide($('topnav-checks'));
       document.querySelectorAll('.hero-link, .topnav-menu [data-open="open-export-modal"]').forEach(hide);
       $('welcome').hidden = false;
       $('welcome-import').addEventListener('click', ()=>$('open-import-modal').click());
@@ -258,6 +258,70 @@
       }
       row.appendChild(tile);
     });
+
+    // Segunda fila del resumen: métricas reales de rentabilidad (TTWROR acumulada YTD, TTWROR anualizada, TIR consolidada)
+    const retRow = document.getElementById('returns-row');
+    if (retRow && !NONE){
+      const m = combined.metrics || {};
+      const hasMultiYear = m.ttwror_total_pct != null && m.ttwror_total_start_iso && m.ttwror_total_start_iso !== m.ttwror_ytd_start_iso;
+      const ytdSub = m.ttwror_ytd_pct != null
+        ? `${m.ttwror_ytd_partial ? 'parcial desde ' : 'desde '}${isoLabel(m.ttwror_ytd_start_iso)}${hasMultiYear ? ` · total: ${pct(m.ttwror_total_pct, 2)}` : ''} · comparable con S&P 500 / MSCI World`
+        : 'Se calcula a partir de los snapshots diarios (necesita al menos 2 valoraciones)';
+
+      let annVal = null, annSub = '';
+      if (hasMultiYear && m.ttwror_total_ann_pct != null){
+        annVal = m.ttwror_total_ann_pct;
+        annSub = `histórico (${m.ttwror_total_days} días)${m.ttwror_ytd_ann_pct != null ? ` · YTD anual.: ${pct(m.ttwror_ytd_ann_pct, 2)}` : ''}`;
+      } else if (m.ttwror_ytd_ann_pct != null){
+        annVal = m.ttwror_ytd_ann_pct;
+        annSub = `ritmo anual equivalente · ${m.ttwror_ytd_days} días`;
+      } else if (m.ttwror_total_ann_pct != null){
+        annVal = m.ttwror_total_ann_pct;
+        annSub = `ritmo anual equivalente · ${m.ttwror_total_days} días`;
+      } else if (m.ttwror_ytd_pct != null || m.ttwror_total_pct != null){
+        const dMax = Math.max(m.ttwror_ytd_days || 0, m.ttwror_total_days || 0);
+        annSub = `Disponible a partir de 30 días de histórico (actual: ${dMax} días)`;
+      } else {
+        annSub = 'Se calcula a partir de los snapshots diarios (mínimo 30 días)';
+      }
+
+      const xirrSub = m.xirr_pct != null
+        ? 'rentabilidad anual ponderada por dinero · todas las cuentas'
+        : 'Se calcula con aportaciones y al menos 1 día de histórico';
+
+      const metricTiles = [
+        {
+          label: 'TTWROR acumulada (YTD)',
+          value: m.ttwror_ytd_pct != null ? pct(m.ttwror_ytd_pct, 2) : '—',
+          cls: m.ttwror_ytd_pct != null ? sg(m.ttwror_ytd_pct) : '',
+          sub: ytdSub,
+          highlight: true,
+          tip: 'Rentabilidad ponderada por tiempo (Time-Weighted Rate of Return): mide el rendimiento real de tus inversiones eliminando el efecto de cuándo aportas o retiras capital. Es la métrica comparable directamente con índices como S&P 500 o MSCI World.',
+        },
+        {
+          label: 'TTWROR anualizada',
+          value: annVal != null ? pct(annVal, 2) : '—',
+          cls: annVal != null ? sg(annVal) : '',
+          sub: annSub,
+          tip: 'TTWROR expresada como tasa anual equivalente ((1 + R)^(365/días) − 1). Solo se muestra cuando el periodo cubre al menos 30 días.',
+        },
+        {
+          label: 'TIR consolidada (XIRR)',
+          value: m.xirr_pct != null ? pct(m.xirr_pct, 2) : '—',
+          cls: m.xirr_pct != null ? sg(m.xirr_pct) : '',
+          sub: xirrSub,
+          tip: 'Tasa Interna de Retorno (Money-Weighted Return) consolidada de toda la cartera: tiene en cuenta el importe y la fecha exacta de cada aportación y retirada en todos tus brókers.',
+        },
+      ];
+      metricTiles.forEach((mt)=>{
+        const tile = el('div', 'stat-tile' + (mt.highlight ? ' is-highlight' : ''));
+        tile.title = mt.tip;
+        tile.appendChild(el('div', 'stat-label-row', `<span class="stat-label">${esc(mt.label)}</span><span class="stat-tip" title="${esc(mt.tip)}" aria-label="${esc(mt.tip)}">?</span>`));
+        tile.appendChild(el('div', 'stat-value' + (mt.cls ? ' ' + mt.cls : ''), mt.value));
+        tile.appendChild(el('div', 'stat-sub', mt.sub));
+        retRow.appendChild(tile);
+      });
+    }
   })();
 
   /* ================= ACCOUNT CARDS ================= */
@@ -278,7 +342,7 @@
       <div class="acct-body">
         <div class="kv-grid">
           <div><div class="kv-label">Valor de la cuenta</div><div class="kv-value">${eur(ibkr.nav_final)}</div></div>
-          <div><div class="kv-label">Rentabilidad ponderada / año</div><div class="kv-value ${sg(ibkr.twr_pct)}">${pct(ibkr.twr_pct,2)}</div></div>
+          <div><div class="kv-label">TWR del extracto (IBKR)</div><div class="kv-value ${sg(ibkr.twr_pct)}">${pct(ibkr.twr_pct,2)}</div></div>
           <div><div class="kv-label">Aportaciones netas</div><div class="kv-value">${eur(ibkr.contributions)}</div></div>
           <div><div class="kv-label">Resultado del periodo</div><div class="kv-value ${sg(ibkr.mtm_pl)}">${eur(ibkr.mtm_pl, {forceSign:true})}</div></div>
           <div><div class="kv-label">Acciones: coste → valor</div><div class="kv-value"><span class="nowrap">${eur(ibkr.stocks_cost)}</span> → <span class="nowrap">${eur(ibkr.stocks_value)}</span></div></div>
@@ -875,6 +939,7 @@
       { id:'1M', short:'1 M', long:'Último mes', months:1 },
       { id:'3M', short:'3 M', long:'Últimos 3 meses', months:3 },
       { id:'6M', short:'6 M', long:'Últimos 6 meses', months:6 },
+      { id:'YTD', short:'YTD', long:'Año en curso (desde 1 ene)', ytd:true },
       { id:'1A', short:'1 A', long:'Último año', months:12 },
       { id:'3A', short:'3 A', long:'Últimos 3 años', months:36 },
       { id:'TOTAL', short:'Total', long:'Desde la primera aportación' },
@@ -914,17 +979,18 @@
     const colorOf = (i)=>SERIES_COLORS[i % SERIES_COLORS.length];
     /* ---- tabla de comparación (siempre desde el principio) ---- */
     const round2c = (n)=>Math.round(n * 100) / 100;
-    const rowFor = (label, swatch, v, gain, gainPct, x, diff, strong) => `<tr${strong ? ' class="bench-me"' : ''}>
+    const rowFor = (label, swatch, v, gain, gainPct, ttw, x, diff, strong) => `<tr${strong ? ' class="bench-me"' : ''}>
         <td><span class="bench-swatch" style="${swatch}"></span>${label}</td>
         <td class="num">${eur(v)}</td>
         <td class="num ${sg(gain)}">${eur(gain,{forceSign:true})}</td>
         <td class="num ${sg(gainPct)}">${gainPct == null ? '—' : pct(gainPct,1)}</td>
+        <td class="num ${sg(ttw)}">${ttw == null ? '—' : pct(ttw,2)}</td>
         <td class="num ${sg(x)}">${x == null ? '—' : pct(x,1)}</td>
         <td class="num">${diff == null ? '<span class="row-sub">—</span>' : `<span class="${sg(diff)}">${eur(diff,{forceSign:true})}</span>`}</td>
       </tr>`;
-    const meRow = rowFor('<b>Tu cartera</b>', 'background:var(--brand); border-radius:50%;', P.value, P.gain, P.gainPct, P.xirr, null, true);
+    const meRow = rowFor('<b>Tu cartera</b>', 'background:var(--brand); border-radius:50%;', P.value, P.gain, P.gainPct, P.ttwror_ytd_pct, P.xirr, null, true);
     const bRows = B.series.map((s,i)=>rowFor(`${esc(s.name)} <span class="row-sub">(${esc(s.symbol)})</span>`, `background:${colorOf(i)}`,
-      s.final, s.gain, s.gainPct, s.xirr, round2c(P.value - s.final), false)).join('');
+      s.final, s.gain, s.gainPct, s.ttwror_ytd_pct, s.xirr, round2c(P.value - s.final), false)).join('');
     const verdict = B.series.map(s=>{
       const d = P.value - s.final;
       return Math.abs(d) < 0.5 ? `igual que ${esc(s.name)}` : `<b class="${sg(d)}">${eur(Math.abs(d))} ${d > 0 ? 'por delante' : 'por detrás'}</b> de ${esc(s.name)}`;
@@ -935,7 +1001,7 @@
       <div class="card bench-card">
         <p class="bench-verdict">Con las mismas aportaciones (${eur(P.contributed)} netos desde el ${isoLabel(B.start)}), tu cartera va ${verdictTxt}.</p>
         <div class="table-scroll"><table class="bench-table">
-          <thead><tr><th></th><th class="num">Valor</th><th class="num">Ganancia</th><th class="num">Sobre lo aportado</th><th class="num">TIR anual</th><th class="num">Tu cartera frente al índice</th></tr></thead>
+          <thead><tr><th></th><th class="num">Valor</th><th class="num">Ganancia</th><th class="num">Sobre lo aportado</th><th class="num" title="Rentabilidad acumulada ponderada por tiempo en EUR desde ${B.ytdStart ? esc(isoLabel(B.ytdStart)) : 'inicio de año'}">TTWROR YTD</th><th class="num">TIR anual</th><th class="num">Tu cartera frente al índice</th></tr></thead>
           <tbody>${meRow}${bRows}</tbody>
         </table></div>
       </div>
@@ -982,7 +1048,8 @@
     }
     function contribAt(tt){ let v = B.contributions[0]; dates.forEach((d,i)=>{ if (d <= tt) v = B.contributions[i]; }); return v; }
     function rangeStart(r){
-      if (!r.days && !r.months) return tFirst;
+      if (!r.days && !r.months && !r.ytd) return tFirst;
+      if (r.ytd){ const e = new Date(tEnd); return Date.UTC(e.getUTCFullYear(), 0, 1); }
       if (r.id === '1D'){ const prev = dates.filter(d=>d < dates[dates.length - 1]); return prev.length ? prev[prev.length - 1] : tFirst; }
       if (r.days) return tEnd - r.days * DAY;
       const e = new Date(tEnd), s = new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth() - r.months, e.getUTCDate()));
@@ -2239,34 +2306,42 @@
       $('price-modal-title').textContent = 'Actualizar precios de mercado';
     }
 
-    const AV_MAP = CONFIG.symbols || {};
+    const avMap = () => CONFIG.symbols || {};
     const canAuto = !!STATUS.hasApiKey;
     const fxStored = DATA.live_meta.fx || {};
-    function rowCur(p){ const av = canAuto && AV_MAP[p.isin]; return av ? av.cur : (p.live_price_cur || p.last_price_cur); }
-    const FX_CURRENCIES = Array.from(new Set(Object.keys(fxStored).concat(MARKET_POS.map(it=>rowCur(it.p)))))
-      .filter(c=>c !== 'EUR').sort();
-    const AUTO_FX = canAuto ? FX_CURRENCIES.filter(c=>(CONFIG.autoFx || []).includes(c)) : [];
+    function rowCur(p){ const av = canAuto && avMap()[p.isin]; return av ? av.cur : (p.live_price_cur || p.last_price_cur); }
+    function getFxCurrencies(){
+      return Array.from(new Set(Object.keys(fxStored).concat(MARKET_POS.map(it=>rowCur(it.p)))))
+        .filter(c=>c !== 'EUR').sort();
+    }
+    function getAutoFx(){
+      return canAuto ? getFxCurrencies().filter(c=>(CONFIG.autoFx || []).includes(c)) : [];
+    }
 
-    const manualNames = MARKET_POS.filter(it=>!AV_MAP[it.p.isin]).map(it=>it.p.name);
-    $('price-modal-intro').innerHTML = canAuto
-      ? `Los extractos de movimientos no traen cotizaciones en vivo, así que al abrir esta ventana la aplicación las busca en Alpha Vantage con tu clave (marcadas <span class="auto-badge">auto</span>).${manualNames.length ? ` Sin símbolo configurado y, por tanto, a mano: <b>${manualNames.slice(0, 8).map(esc).join(', ')}${manualNames.length > 8 ? '…' : ''}</b>.` : ''} Al guardar se recalculan el valor, las plusvalías, los totales y la TIR. No afecta a Interactive Brokers.`
-      : `No hay clave de Alpha Vantage configurada, así que los precios se introducen a mano: escribe la última cotización de cada valor en la divisa indicada y revisa los tipos de cambio. Al guardar se recalculan el valor, las plusvalías, los totales y la TIR. No afecta a Interactive Brokers.
+    function updateIntro(){
+      const map = avMap();
+      const manualNames = MARKET_POS.filter(it=>!map[it.p.isin]).map(it=>it.p.name);
+      $('price-modal-intro').innerHTML = canAuto
+        ? `Los extractos de movimientos no traen cotizaciones en vivo, así que al abrir esta ventana la aplicación las busca en Alpha Vantage con tu clave (marcadas <span class="auto-badge">auto</span>).${manualNames.length ? ` Sin símbolo configurado y, por tanto, a mano: <b>${manualNames.slice(0, 8).map(esc).join(', ')}${manualNames.length > 8 ? '…' : ''}</b>.` : ''} Al guardar se recalculan el valor, las plusvalías, los totales y la TIR. No afecta a Interactive Brokers.`
+        : `No hay clave de Alpha Vantage configurada, así que los precios se introducen a mano: escribe la última cotización de cada valor en la divisa indicada y revisa los tipos de cambio. Al guardar se recalculan el valor, las plusvalías, los totales y la TIR. No afecta a Interactive Brokers.
          <span class="key-box"><b>¿Quieres que los busque sola?</b> Pide una clave gratuita en alphavantage.co/support/#api-key y pégala aquí. Se guarda solo en este ordenador (archivo <span class="mono">.env</span>, que no se sube a GitHub).
          <span class="key-row"><input type="password" id="av-key-input" placeholder="Clave de Alpha Vantage" autocomplete="off" spellcheck="false" aria-label="Clave de Alpha Vantage"><button type="button" class="btn-secondary" id="av-key-save">Guardar clave</button></span><span id="av-key-status" class="key-status"></span></span>`;
-    const keyBtn = $('av-key-save');
-    if (keyBtn){
-      keyBtn.addEventListener('click', async ()=>{
-        const st = $('av-key-status');
-        st.style.color = ''; st.textContent = 'Guardando…'; keyBtn.disabled = true;
-        try {
-          await api('POST', '/api/apikey', { key: $('av-key-input').value.trim() });
-          try { sessionStorage.setItem('cartera:toast', 'Clave guardada: pulsa «Actualizar precios» para buscarlos automáticamente'); } catch (e) { /* sin aviso */ }
-          location.reload();
-        } catch (err){
-          st.textContent = err.message; st.style.color = 'var(--critical)'; keyBtn.disabled = false;
-        }
-      });
+      const keyBtn = $('av-key-save');
+      if (keyBtn){
+        keyBtn.addEventListener('click', async ()=>{
+          const st = $('av-key-status');
+          st.style.color = ''; st.textContent = 'Guardando…'; keyBtn.disabled = true;
+          try {
+            await api('POST', '/api/apikey', { key: $('av-key-input').value.trim() });
+            try { sessionStorage.setItem('cartera:toast', 'Clave guardada: pulsa «Actualizar precios» para buscarlos automáticamente'); } catch (e) { /* sin aviso */ }
+            location.reload();
+          } catch (err){
+            st.textContent = err.message; st.style.color = 'var(--critical)'; keyBtn.disabled = false;
+          }
+        });
+      }
     }
+    updateIntro();
 
     let autoFetchedIdx = new Set();
     let autoFetchedFx = new Set();
@@ -2274,9 +2349,12 @@
     let runId = 0;
 
     function buildInputs(){
+      const fxList = getFxCurrencies();
+      const autoFxList = getAutoFx();
+      const map = avMap();
       fxWrap.innerHTML = '';
-      FX_CURRENCIES.forEach(cur=>{
-        const auto = AUTO_FX.includes(cur);
+      fxList.forEach(cur=>{
+        const auto = autoFxList.includes(cur);
         const row = document.createElement('div');
         row.className = 'fx-row';
         row.innerHTML = `<label for="fx-${cur}">${cur}${auto ? ' <span class="auto-badge">auto</span>' : ''}</label>`;
@@ -2296,7 +2374,8 @@
 
       function renderPosRow(target, it, idx){
         const p = it.p;
-        const avInfo = canAuto ? AV_MAP[p.isin] : null;
+        const avInfo = canAuto ? map[p.isin] : null;
+        const hasSymbol = !!map[p.isin];
         const knownCur = p.live_price_cur || p.last_price_cur;
         const cur = rowCur(p);
         const price = (p.live_price != null ? p.live_price : p.last_price);
@@ -2320,6 +2399,96 @@
           inputsWrap.appendChild(st);
         }
         row.appendChild(inputsWrap);
+
+        if (!hasSymbol && p.isin){
+          const symBox = document.createElement('div');
+          symBox.className = 'av-sym-box';
+          symBox.innerHTML = `
+            <div class="av-sym-controls">
+              <input type="text" class="av-sym-input" placeholder="Ticker Alpha Vantage (ej. VRT)" maxlength="15" autocomplete="off" spellcheck="false" aria-label="Ticker Alpha Vantage para ${esc(p.name)}">
+              <input type="text" class="av-cur-input" value="${esc(cur)}" maxlength="3" autocomplete="off" spellcheck="false" aria-label="Divisa del ticker">
+              <button type="button" class="btn-mini av-detect-btn">Autodetectar</button>
+              <button type="button" class="btn-mini btn-mini-primary av-save-btn">Guardar</button>
+              <span class="av-sym-status"></span>
+            </div>
+            <div class="av-candidates" hidden></div>`;
+          const symInp = symBox.querySelector('.av-sym-input');
+          const curInp = symBox.querySelector('.av-cur-input');
+          const detectBtn = symBox.querySelector('.av-detect-btn');
+          const saveSymBtn = symBox.querySelector('.av-save-btn');
+          const symStatus = symBox.querySelector('.av-sym-status');
+          const candWrap = symBox.querySelector('.av-candidates');
+
+          detectBtn.addEventListener('click', async ()=>{
+            detectBtn.disabled = true;
+            symStatus.style.color = '';
+            symStatus.textContent = 'Buscando…';
+            candWrap.innerHTML = '';
+            candWrap.hidden = true;
+            try {
+              const r = await api('GET', '/api/symbol-search?q=' + encodeURIComponent(p.name) + '&cur=' + encodeURIComponent(cur));
+              if (r.best){
+                symInp.value = r.best.symbol;
+                if (r.best.currency) curInp.value = r.best.currency;
+                symStatus.style.color = 'var(--good)';
+                symStatus.textContent = `Sugerido: ${r.best.symbol} (${r.best.currency || cur})`;
+              } else {
+                symStatus.textContent = 'Sin resultados en Alpha Vantage';
+              }
+              if (Array.isArray(r.matches) && r.matches.length > 1){
+                r.matches.slice(0, 5).forEach(m=>{
+                  const b = document.createElement('button');
+                  b.type = 'button';
+                  b.className = 'av-cand-btn';
+                  b.textContent = `${m.symbol} · ${m.currency || '?'} · ${m.name}`;
+                  b.addEventListener('click', ()=>{
+                    symInp.value = m.symbol;
+                    if (m.currency) curInp.value = m.currency;
+                    symStatus.style.color = '';
+                    symStatus.textContent = `Seleccionado: ${m.symbol}`;
+                  });
+                  candWrap.appendChild(b);
+                });
+                candWrap.hidden = false;
+              }
+            } catch (err){
+              symStatus.style.color = 'var(--critical)';
+              symStatus.textContent = err.message;
+            } finally {
+              detectBtn.disabled = false;
+            }
+          });
+
+          saveSymBtn.addEventListener('click', async ()=>{
+            const sym = symInp.value.trim().toUpperCase();
+            const symCur = (curInp.value.trim() || cur).toUpperCase();
+            if (!sym){
+              symStatus.style.color = 'var(--critical)';
+              symStatus.textContent = 'Escribe un ticker primero.';
+              symInp.focus();
+              return;
+            }
+            saveSymBtn.disabled = true;
+            symStatus.style.color = '';
+            symStatus.textContent = 'Guardando…';
+            try {
+              const r = await api('POST', '/api/symbols', { isin: p.isin, symbol: sym, cur: symCur, label: sym });
+              CONFIG.symbols = r.symbols;
+              runId++;
+              fetchInFlight = false;
+              updateIntro();
+              buildInputs();
+              runAutoFetch();
+            } catch (err){
+              symStatus.style.color = 'var(--critical)';
+              symStatus.textContent = err.message;
+              saveSymBtn.disabled = false;
+            }
+          });
+
+          row.appendChild(symBox);
+        }
+
         target.appendChild(row);
       }
 
@@ -2379,7 +2548,8 @@
 
     function buildQueue(){
       const q = [];
-      AUTO_FX.forEach(cur=>{
+      const map = avMap();
+      getAutoFx().forEach(cur=>{
         q.push({
           statusEl: () => fxWrap.querySelector(`[data-fx-status="${cur}"]`),
           inputEl: () => fxWrap.querySelector(`input[data-fx="${cur}"]`),
@@ -2388,7 +2558,7 @@
         });
       });
       MARKET_POS.forEach((it,i)=>{
-        const avInfo = AV_MAP[it.p.isin];
+        const avInfo = map[it.p.isin];
         if (!avInfo) return;
         q.push({
           statusEl: () => overlay.querySelector(`[data-pos-status="${i}"]`),
@@ -2504,7 +2674,7 @@
         const it = MARKET_POS[idx];
         const p = it.p;
         const auto = autoFetchedIdx.has(idx);
-        prices.push({ broker:it.broker, id:p.id, isin:p.isin, price:v, cur:inp.dataset.cur, auto, symbol: auto ? (AV_MAP[p.isin] || {}).symbol : undefined });
+        prices.push({ broker:it.broker, id:p.id, isin:p.isin, price:v, cur:inp.dataset.cur, auto, symbol: auto ? (avMap()[p.isin] || {}).symbol : undefined });
       });
       if (hasError){
         statusEl.textContent = 'Revisa las casillas en rojo: deben ser números mayores que 0.';
@@ -2597,7 +2767,7 @@
         h += input('divisa', 'Divisa del precio', { type:'text', maxlength:3, placeholder:'EUR' });
         h += input('comision_eur', 'Comisión en EUR', { value:'0' });
         h += input('importe_eur', 'Importe en EUR (sin comisión)', { full:true, hint:'<span id="mov-importe-hint"></span>' });
-        h += input('av_symbol', 'Símbolo en Alpha Vantage (opcional)', { type:'text', cls:'only-new', placeholder:'p. ej. MSFT', maxlength:15, hint:'Para que su precio se actualice solo. Si lo dejas vacío, se introduce a mano.' });
+        h += input('av_symbol', 'Símbolo en Alpha Vantage (opcional)', { type:'text', cls:'only-new', placeholder:'p. ej. MSFT', maxlength:15, hint:'<button type="button" class="link-btn" id="mov-av-detect">Autodetectar</button> <span id="mov-av-status" class="av-sym-status"></span><div id="mov-av-cands" class="av-candidates" hidden></div>Para que su precio se actualice solo. Si lo dejas vacío, se introduce a mano.' });
         h += input('av_cur', 'Divisa de ese símbolo', { type:'text', cls:'only-new', maxlength:3, placeholder:'USD' });
       } else if (current === 'venta'){
         if (!positions.length){ fieldsEl.innerHTML = '<p class="footnote">No hay posiciones abiertas que vender.</p>'; return; }
@@ -2763,10 +2933,56 @@
       update();
     });
     fieldsEl.addEventListener('change', (ev)=>{ if (ev.target.name === 'isin_sel' || ev.target.name === 'nombre_sel'){ syncSelection(true); update(); } });
-    fieldsEl.addEventListener('click', (ev)=>{
-      if (ev.target.id !== 'mov-sell-all') return;
-      const p = posByIsin(get('isin_sel'));
-      if (p){ set('cantidad', String(p.qty).replace('.', ',')); update(); }
+    fieldsEl.addEventListener('click', async (ev)=>{
+      if (ev.target.id === 'mov-sell-all'){
+        const p = posByIsin(get('isin_sel'));
+        if (p){ set('cantidad', String(p.qty).replace('.', ',')); update(); }
+        return;
+      }
+      if (ev.target.id === 'mov-av-detect'){
+        const btn = ev.target;
+        const st = $('mov-av-status');
+        const cands = $('mov-av-cands');
+        const nombre = get('nombre');
+        const cur = get('divisa').toUpperCase();
+        if (!nombre){
+          if (st){ st.style.color = 'var(--critical)'; st.textContent = 'Escribe primero el nombre del valor.'; }
+          return;
+        }
+        btn.disabled = true;
+        if (st){ st.style.color = ''; st.textContent = 'Buscando…'; }
+        if (cands){ cands.innerHTML = ''; cands.hidden = true; }
+        try {
+          const qs = 'q=' + encodeURIComponent(nombre) + (cur ? '&cur=' + encodeURIComponent(cur) : '');
+          const r = await api('GET', '/api/symbol-search?' + qs);
+          if (r.best){
+            set('av_symbol', r.best.symbol);
+            if (r.best.currency) set('av_cur', r.best.currency);
+            if (st){ st.style.color = 'var(--good)'; st.textContent = `Sugerido: ${r.best.symbol} (${r.best.currency || cur || '?'})`; }
+          } else if (st){
+            st.textContent = 'Sin resultados en Alpha Vantage';
+          }
+          if (cands && Array.isArray(r.matches) && r.matches.length > 1){
+            r.matches.slice(0, 5).forEach(m=>{
+              const b = document.createElement('button');
+              b.type = 'button';
+              b.className = 'av-cand-btn';
+              b.textContent = `${m.symbol} · ${m.currency || '?'} · ${m.name}`;
+              b.addEventListener('click', ()=>{
+                set('av_symbol', m.symbol);
+                if (m.currency) set('av_cur', m.currency);
+                if (st){ st.style.color = ''; st.textContent = `Seleccionado: ${m.symbol}`; }
+              });
+              cands.appendChild(b);
+            });
+            cands.hidden = false;
+          }
+        } catch (err){
+          if (st){ st.style.color = 'var(--critical)'; st.textContent = err.message; }
+        } finally {
+          btn.disabled = false;
+        }
+      }
     });
 
     form.addEventListener('submit', async (ev)=>{
@@ -2955,7 +3171,10 @@
       statusEl.style.color = ''; statusEl.textContent = 'Importando…';
       try {
         const r = await api('POST', '/api/import', { files, mappings });
-        reloadWithToast(r.saved);
+        const saved = Object.assign({}, r.saved);
+        const autoList = r.autoSymbols ? Object.values(r.autoSymbols).map(s=>s.symbol).filter(Boolean) : [];
+        if (autoList.length) saved.summary = `${saved.summary} · Alpha Vantage autodetectado: ${autoList.join(', ')}`;
+        reloadWithToast(saved);
       } catch (err){
         statusEl.textContent = err.message; statusEl.style.color = 'var(--critical)';
         busy = false; saveBtn.disabled = false;

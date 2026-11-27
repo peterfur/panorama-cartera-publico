@@ -15,11 +15,11 @@ const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 
-const { UserError, todayIso, dateLabels, FEE_CATEGORIES } = require('./lib/calc');
+const { UserError, todayIso, dateLabels, FEE_CATEGORIES, computePortfolioMetrics } = require('./lib/calc');
 const { applyMovement, applyPrices, TYPES, fmtEur } = require('./lib/movements');
 const { runChecks, summarize } = require('./lib/checks');
 const { createStore } = require('./lib/store');
-const { createClient, QuoteError } = require('./lib/alphavantage');
+const { createClient, QuoteError, cleanSearchQuery, pickBestSymbolMatch } = require('./lib/alphavantage');
 const degiro = require('./lib/degiro');
 const ibkr = require('./lib/ibkr');
 const brokers = require('./lib/brokers');
@@ -99,6 +99,7 @@ function createApp(root, options) {
 
   async function statePayload(extra) {
     const data = store.load();
+    if (data && data.combined) data.combined.metrics = computePortfolioMetrics(data);
     const cfg = store.loadConfig();
     const checks = runChecks(data);
     let bench = null;
@@ -288,6 +289,36 @@ function createApp(root, options) {
     };
   }
 
+  function saveSymbolsConfig(newSymbols) {
+    let raw = {};
+    try { raw = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8')); } catch (e) { /* se crea */ }
+    raw.alphaVantage = raw.alphaVantage || {};
+    raw.alphaVantage.symbols = Object.assign({}, raw.alphaVantage.symbols, newSymbols);
+    store.saveConfig(raw);
+    return raw.alphaVantage.symbols;
+  }
+
+  function listOpenPositions(data) {
+    const out = Array.isArray(data && data.degiro_open_positions) ? data.degiro_open_positions.slice() : [];
+    Object.values((data && data.extra_brokers) || {}).forEach((b) => {
+      if (b && Array.isArray(b.positions)) out.push(...b.positions);
+    });
+    return out;
+  }
+
+  async function searchSymbol(rawQuery, cur) {
+    const av = client();
+    const cleaned = cleanSearchQuery(rawQuery) || rawQuery;
+    let usedQuery = cleaned;
+    let matches = await av.symbolSearch(cleaned);
+    if (!matches.length && cleaned.toLowerCase() !== rawQuery.toLowerCase()) {
+      usedQuery = rawQuery;
+      matches = await av.symbolSearch(rawQuery);
+    }
+    const best = pickBestSymbolMatch(matches, { currency: cur, name: rawQuery });
+    return { query: usedQuery, matches, best };
+  }
+
   /** Aplica un cambio sobre una copia; solo se guarda si todo cuadra. */
   function mutate(kind, apply) {
     return exclusive(async () => {
@@ -304,11 +335,7 @@ function createApp(root, options) {
       benchmark.recordSnapshot(data, todayIso());
       const cfg = store.loadConfig();
       if (result.newSymbols && Object.keys(result.newSymbols).length) {
-        let raw = {};
-        try { raw = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8')); } catch (e) { /* se crea */ }
-        raw.alphaVantage = raw.alphaVantage || {};
-        raw.alphaVantage.symbols = Object.assign({}, raw.alphaVantage.symbols, result.newSymbols);
-        store.saveConfig(raw);
+        saveSymbolsConfig(result.newSymbols);
       }
       store.save(data);
       const commit = await store.commit(`${kind}: ${result.summary}`, cfg);
@@ -381,6 +408,13 @@ function createApp(root, options) {
       if (!/^[A-Z0-9.\-]{1,15}$/.test(symbol)) throw new UserError('Símbolo no válido.');
       return send(res, 200, await client().quote(symbol));
     }
+    if (route === 'GET /api/symbol-search') {
+      const q = String(url.searchParams.get('q') || '').trim().slice(0, 120);
+      if (!q) throw new UserError('Falta el texto de búsqueda.', 'q');
+      const curRaw = String(url.searchParams.get('cur') || '').trim().toUpperCase();
+      if (curRaw && !/^[A-Z]{3}$/.test(curRaw)) throw new UserError('Divisa no válida.', 'cur');
+      return send(res, 200, await searchSymbol(q, curRaw || ''));
+    }
     if (route === 'GET /api/fx') {
       const cur = String(url.searchParams.get('currency') || '').toUpperCase();
       if (!/^[A-Z]{3}$/.test(cur) || cur === 'EUR') throw new UserError('Divisa no válida.');
@@ -451,6 +485,19 @@ function createApp(root, options) {
         return statePayload({ saved: { summary, commit } });
       }));
     }
+    if (route === 'POST /api/symbols') {
+      const body = await readBody(req);
+      const isin = String(body.isin || '').trim().toUpperCase();
+      if (!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin)) throw new UserError('ISIN no válido (debe tener 12 caracteres).', 'isin');
+      const symbol = String(body.symbol || '').trim().toUpperCase();
+      if (!/^[A-Z0-9.\-]{1,15}$/.test(symbol)) throw new UserError('Símbolo de Alpha Vantage no válido.', 'symbol');
+      const cur = String(body.cur || '').trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(cur)) throw new UserError('Divisa no válida (código de 3 letras, p. ej. USD).', 'cur');
+      const label = String(body.label || '').trim().slice(0, 80) || symbol;
+      const entry = { symbol, cur, label };
+      const symbols = await exclusive(() => saveSymbolsConfig({ [isin]: entry }));
+      return send(res, 200, { ok: true, isin, entry, symbols });
+    }
     if (route === 'POST /api/prices') {
       const body = await readBody(req);
       return send(res, 200, await mutate('precios', (data) => applyPrices(data, body)));
@@ -462,14 +509,53 @@ function createApp(root, options) {
     if (route === 'POST /api/import') {
       const body = await readBody(req, 16 * 1024 * 1024);
       return send(res, 200, await exclusive(async () => {
+        const beforeIsins = new Set(listOpenPositions(store.load()).map((p) => p.isin).filter(Boolean));
         const r = computeImport(body.files, body.mappings);
         if (r.preview.needsMapping) throw new UserError('Completa el mapeo de columnas antes de importar.');
         if (r.preview.blocking.length) throw new UserError('No se ha importado: ' + r.preview.blocking[0]);
         store.addJournal(r.data, { kind: 'importacion', summary: r.summary, files: r.preview.files });
         benchmark.recordSnapshot(r.data, todayIso());
         store.save(r.data, r.ledgers);
-        const commit = await store.commit(`importación: ${r.preview.files.map((f) => f.name).join(', ')}`, store.loadConfig());
-        return statePayload({ saved: { summary: r.summary, commit } });
+
+        // Autodetección best-effort de símbolos de Alpha Vantage para posiciones nuevas (máx. 3 consultas).
+        const cfg = store.loadConfig();
+        const existingSymbols = (cfg.alphaVantage && cfg.alphaVantage.symbols) || {};
+        const autoSymbols = {};
+        if (apiKey()) {
+          const seen = new Set();
+          const newMissing = listOpenPositions(r.data).filter((p) => {
+            if (!p || !p.isin || beforeIsins.has(p.isin) || existingSymbols[p.isin] || seen.has(p.isin)) return false;
+            seen.add(p.isin);
+            return true;
+          }).slice(0, 3);
+          if (newMissing.length) {
+            const av = client();
+            const delayMs = cfg.alphaVantage.delayMs != null ? cfg.alphaVantage.delayMs : 1300;
+            for (let i = 0; i < newMissing.length; i++) {
+              if (i > 0 && delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+              const pos = newMissing[i];
+              const targetCur = String(pos.live_price_cur || pos.last_price_cur || '').trim().toUpperCase();
+              const query = cleanSearchQuery(pos.name) || pos.name;
+              try {
+                const matches = await av.symbolSearch(query);
+                const best = pickBestSymbolMatch(matches, { currency: targetCur, name: pos.name });
+                if (best && (!targetCur || best.currency === targetCur) && (!best.type || /^equity$/i.test(best.type)) && best.matchScore >= 0.6) {
+                  autoSymbols[pos.isin] = {
+                    symbol: best.symbol,
+                    cur: best.currency || targetCur || 'EUR',
+                    label: best.region ? `${best.region}: ${best.symbol}` : best.symbol,
+                  };
+                }
+              } catch (e) {
+                if (e instanceof QuoteError && ['rate_limited', 'bad_key', 'no_api_key', 'network'].includes(e.code)) break;
+              }
+            }
+            if (Object.keys(autoSymbols).length) saveSymbolsConfig(autoSymbols);
+          }
+        }
+
+        const commit = await store.commit(`importación: ${r.preview.files.map((f) => f.name).join(', ')}`, cfg);
+        return statePayload({ saved: { summary: r.summary, commit }, autoSymbols });
       }));
     }
     if (route === 'POST /api/movements') {
